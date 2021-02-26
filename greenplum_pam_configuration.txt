@@ -1,0 +1,163 @@
+
+1. Greenplum 인증 방식
+   - Greenplum의 인증방식에는 md5, password, ldap, AD, pam(Pluggable Authentication Modules) 등이 있습니다.
+   - Database의 인증 방식에는 md5를 권고하고 있으며, ldap, ad 등을 이용하여 3th party 솔루션을 이용하여 인증할 수 있습니다.
+   - pam(Pluggable Authentication Modules)은 Linux의 OS 에서 지원하는 인증방식이며, 이를 활용하면 다양한 기능을 사용할 수 있습니다.
+     패스워드 규칙 강화, 패스워드 기간 설정, 패스워드 인증 실패시 계정 Lock 등
+   - pam 을 이용한 Greenplum 지원 버전 : Greenplum 4, 5, 6 모두 지원
+
+2. PAM을 이용한 Greenplum 인증 설정
+   1) OS 설정
+### RHEL/CentOS 7.4 (에서 테스트)  
+# su - root
+# vi /etc/pam.d/greenplum
+#%PAM-1.0
+auth      include      system-auth
+account   include      system-auth     
+
+## 권한 변경
+# ls -la  /usr/sbin/unix_chkpwd  /etc/shadow
+----------  1 root root   811 Sep 23 01:56 /etc/shadow
+-rwsr-xr-x. 1 root root 36280 Nov  5  2016 /usr/sbin/unix_chkpwd
+# 
+
+# chmod 6755 /usr/sbin/unix_chkpwd
+# chmod 0040 /etc/shadow
+# ls -la  /usr/sbin/unix_chkpwd  /etc/shadow
+----r-----  1 root root   811 Sep 23 01:56 /etc/shadow
+-rwsr-sr-x. 1 root root 36280 Nov  5  2016 /usr/sbin/unix_chkpwd  
+#
+
+### RHEL/CentOS 6.7 (에서 테스트) 
+# su - root
+# vi /etc/pam.d/greenplum
+#%PAM-1.0
+auth      include      system-auth
+account   include      system-auth     
+
+## 권한 변경
+# ls -la  /sbin/unix_chkpwd  /etc/shadow
+----------  1 root root   1103 Sep 18 23:28 /etc/shadow
+-rwsr-xr-x. 1 root root 34840 Oct 15  2014 /sbin/unix_chkpwd
+# 
+
+# chmod 6755 /sbin/unix_chkpwd
+# chmod 0040 /etc/shadow
+# ls -la  /sbin/unix_chkpwd  /etc/shadow
+----r-----. 1 root root 1103 Sep 18 23:28 /etc/shadow
+-rwsr-sr-x. 1 root root 34840 Oct 15  2014 /sbin/unix_chkpwd  
+#
+
+   
+   2) Greenplum 설정
+     - 마스터 노드 및 Standby Master 노드
+$ su - gpadmin
+$ cd $MASTER_DATA_DIRECTORY
+$ vi pg_hba.conf
+#일반적인 인증방식
+#host    all   all     0.0.0.0/0  md5  
+#PAM을 이용한 인증 방식
+host    all   all     0.0.0.0/0  pam pamservice=greenplum   
+$ gpstop -u
+
+   3) 계정 생성
+     - OS 계정 생성
+# groupadd gpdb
+# useradd -g gpdb udba 
+# cat /etc/passwd | grep udba
+udba:x:1002:1002::/home/udba:/bin/bash
+# passwd udba
+Changing password for user udba.
+New password:
+Retype new password:
+passwd: all authentication tokens updated successfully.
+#
+     - Greenplum database 계정 생성
+$ psql
+=# create role udba login;
+=# \q
+$
+
+   4) 접속 테스트 
+## DB 접속 가능
+[gpadmin@smdw ~]$ psql -h Greenplum마스터IP -d databasename -U udba
+Password for user alice:
+psql (9.4.24)
+Type "help" for help.
+
+gpadmin=>
+   
+   5) 에러 발생시  
+     - 에러 메시지 : psql: FATAL:  PAM authentication failed for user "udba"
+# 권한 변경
+# ls -la  /usr/sbin/unix_chkpwd  /etc/shadow
+----------  1 root root   811 Sep 23 01:56 /etc/shadow
+-rwsr-xr-x. 1 root root 36280 Nov  5  2016 /usr/sbin/unix_chkpwd
+# 
+
+# chmod 6755 /usr/sbin/unix_chkpwd
+# chmod 0040 /etc/shadow
+# ls -la  /usr/sbin/unix_chkpwd  /etc/shadow
+----r-----  1 root root   811 Sep 23 01:56 /etc/shadow
+-rwsr-sr-x. 1 root root 36280 Nov  5  2016 /usr/sbin/unix_chkpwd
+   
+
+3. Password 강화 설정 (필요시)
+   1) 패스워드 복잡도 설정 - 8글자 이상으로 각각 영문대문자/영문소문자/숫자/특수문자 1개씩은 포함되도록 
+       - 2가지 방법이 있으며, 둘 중 하나로 설정하면 됨.  
+# su - root
+# authconfig --passminlen=8 --update
+# vi /etc/security/pwquality.conf
+minlen = 8                     #패스워드 최소 글자수
+minclass = 1                   # 최소 한개의 소문자/대문자/숫자/특수문자가 포함되어야 함.
+lcredit = 0                    #최소 1개 이상의 소문자 포함
+ucredit = 0                    #최소 1개 이상의 대문자 포함
+dcredit = 0                    #최소 1개 이상의 숫자 포함
+ocredit = 0                    #최소 1개 이상의 특수문자 포함
+
+또는 아래와 같이 셋팅
+
+# vi /etc/security/pwquality.conf
+minlen = 8                     #패스워드 최소 글자수
+minclass = 0                   # 최소 한개의 소문자/대문자/숫자/특수문자가 포함되어야 함.
+lcredit = -1                   #최소 1개 이상의 소문자 포함
+ucredit = -1                   #최소 1개 이상의 대문자 포함
+dcredit = -1                   #최소 1개 이상의 숫자 포함
+ocredit = -1                   #최소 1개 이상의 특수문자 포함
+
+   2) 패스워드 최대 사용 기간을 제한
+      - 패스워드 최대 사용기간 90일 이하 설정
+      - 설정 파일로 변경하는 경우
+# vi /etc/login.defs
+PASS_MAX_DAYS 90               #패스워드 사용이 가능한 기간
+PASS_MIN_DAYS 0                #패스워드 변경이 가능한 최소 기간
+PASS_MIN_LEN  8                #패스워드 최소 길이
+PASS_WARN_AGE 7                #패스워드 만료 표시 기간
+
+      - OS Command로 설정 변경
+[root@mdw ~]# chage -l udba        # 현황 확인
+Last password change					: Sep 22, 2020
+Password expires					: never
+Password inactive					: never
+Account expires						: never
+Minimum number of days between password change		: 0
+Maximum number of days between password change		: 99999
+Number of days of warning before password expires	: 7
+
+# 90일 이후 패스워드 권한 만료 설정
+[root@mdw ~]# chage -M 90 udba
+
+# 7일 이전 패스워드 변경 경고
+[root@mdw ~]# chage -W 7 udba
+
+# 적용 후 확인
+[root@mdw ~]# chage -l udba
+Last password change					: Sep 22, 2020
+Password expires					: Dec 21, 2020
+Password inactive					: never
+Account expires						: never
+Minimum number of days between password change		: 0
+Maximum number of days between password change		: 90
+Number of days of warning before password expires	: 7
+[root@mdw ~]# 
+

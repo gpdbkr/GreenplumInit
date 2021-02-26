@@ -1,0 +1,3 @@
+yum install dstat -y
+yum install sysstat -y
+cp /data/dba/utilities/nmon /usr/local/bin

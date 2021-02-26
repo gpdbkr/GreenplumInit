@@ -1,0 +1,627 @@
+Greenplum 6 Database 및 Greenplum Command Center(Web Based 모니터링 툴) 설치
+
+Greenplum 싱글머신 설치 기준
+
+##########################################
+######### OS 설정 사전 준비, Root 계정 필요
+##########################################
+
+##### 네트워크 셋팅 ##### 
+[root@localhost ~]# vi /etc/sysconfig/network-scripts/ifcfg-ens33
+[root@localhost ~]# cat /etc/sysconfig/network-scripts/ifcfg-ens33
+DEVICE=ens33
+TYPE=Ethernet
+ONBOOT=yes
+BOOTPROTO=none
+NM_CONTROLLED=yes
+IPADDR=172.16.25.235
+NETMASK=255.255.255.0
+#GATEWAY=172.16.25.2
+[root@localhost ~]# cat /etc/resolv.conf
+nameserver 8.8.8.8
+[root@localhost network-scripts]# cat /etc/sysconfig/network
+GATEWAY=172.16.25.2
+[root@localhost network-scripts]#
+
+##### Hostname 설정 ##### 
+[root@localhost ~]# hostnamectl set-hostname mdw
+[root@localhost ~]# hostnamectl status
+   Static hostname: mdw
+         Icon name: computer-vm
+           Chassis: vm
+        Machine ID: b514e55af64d4a8fa8d3948748e12576
+           Boot ID: c86fd70e2c6e40ad9040c89e3da25561
+    Virtualization: vmware
+  Operating System: CentOS Linux 7 (Core)
+       CPE OS Name: cpe:/o:centos:centos:7
+            Kernel: Linux 3.10.0-693.el7.x86_64
+      Architecture: x86-64
+[root@localhost ~]# cat /etc/hostname
+mdw
+[root@localhost ~]#
+
+##### Hosts 설정: Greenplum 클러스터간의 통신을 위한 목적 ##### 
+[root@localhost ~]# vi /etc/hosts
+[root@localhost ~]# cat /etc/hosts
+127.0.0.1   localhost localhost.localdomain localhost4 localhost4.localdomain4
+::1         localhost localhost.localdomain localhost6 localhost6.localdomain6
+172.16.25.235 mdw
+
+#####  SELinux Disable ##### 
+[root@localhost ~]# sestatus
+SELinux status:                 enabled             ###>> diable 필요
+SELinuxfs mount:                /sys/fs/selinux
+SELinux root directory:         /etc/selinux
+Loaded policy name:             targeted
+Current mode:                   enforcing
+Mode from config file:          enforcing
+Policy MLS status:              enabled
+Policy deny_unknown status:     allowed
+Max kernel policy version:      28
+[root@localhost ~]# sed -i 's/SELINUX=enforcing/SELINUX=disabled/g' /etc/selinux/config
+[root@localhost ~]# cat /etc/selinux/config | grep "SELINUX"
+# SELINUX= can take one of these three values:
+SELINUX=disabled
+# SELINUXTYPE= can take one of three two values:
+SELINUXTYPE=targeted
+
+#####  방화벽 Disable ##### 
+[root@localhost ~]# systemctl stop firewalld.service
+[root@localhost ~]# systemctl disable firewalld.service
+Removed symlink /etc/systemd/system/multi-user.target.wants/firewalld.service.
+Removed symlink /etc/systemd/system/dbus-org.fedoraproject.FirewallD1.service.
+[root@localhost ~]# systemctl status firewalld.service
+● firewalld.service - firewalld - dynamic firewall daemon
+   Loaded: loaded (/usr/lib/systemd/system/firewalld.service; disabled; vendor preset: enabled)
+   Active: inactive (dead)
+     Docs: man:firewalld(1)
+ 
+#####  iptables 비활성화 ##### 
+### iptables가 chkconfig에 리스트가 없을 경우
+[root@localhost ~]# /sbin/chkconfig --list iptables
+Note: This output shows SysV services only and does not include native
+      systemd services. SysV configuration data might be overridden by native
+      systemd configuration.
+
+      If you want to list systemd services use 'systemctl list-unit-files'.
+      To see services enabled on particular target use
+      'systemctl list-dependencies [target]'.
+
+error reading information on service iptables: No such file or directory
+### iptables가 chkconfig 리스트에 있을 경우 off 수행
+[root@localhost ~]# /sbin/chkconfig iptables off
+[root@localhost ~]# iptables 0:off 1:off 2:off 3:off 4:off 5:off 6:off
+error reading information on service iptables: No such file or directory
+[root@localhost ~]#
+
+
+##### sysctl.conf 설정 ##### 
+### Greenplum 설정 가이드의 sysctl.conf 참조, 그대로 Copy 후 특정 값에 대해서는 튜닝 필요
+[root@localhost ~]# vi /etc/sysctl.conf
+[root@localhost ~]# cat /etc/sysctl.conf
+# kernel.shmall = _PHYS_PAGES / 2 # See Shared Memory Pages
+kernel.shmall = 197951838
+# kernel.shmmax = kernel.shmall * PAGE_SIZE
+kernel.shmmax = 810810728448
+kernel.shmmni = 4096
+vm.overcommit_memory = 2 # See Segment Host Memory
+vm.overcommit_ratio = 95 # See Segment Host Memory
+
+net.ipv4.ip_local_port_range = 10000 65535 # See Port Settings
+kernel.sem = 500 2048000 200 4096
+kernel.sysrq = 1
+kernel.core_uses_pid = 1
+kernel.msgmnb = 65536
+kernel.msgmax = 65536
+kernel.msgmni = 2048
+net.ipv4.tcp_syncookies = 1
+net.ipv4.conf.default.accept_source_route = 0
+net.ipv4.tcp_max_syn_backlog = 4096
+net.ipv4.conf.all.arp_filter = 1
+net.core.netdev_max_backlog = 10000
+net.core.rmem_max = 2097152
+net.core.wmem_max = 2097152
+vm.swappiness = 10
+vm.zone_reclaim_mode = 0
+vm.dirty_expire_centisecs = 500
+vm.dirty_writeback_centisecs = 100
+vm.dirty_background_ratio = 0 # See System Memory
+vm.dirty_ratio = 0
+vm.dirty_background_bytes = 1610612736
+vm.dirty_bytes = 4294967296
+[root@localhost ~]#
+
+##### limits.conf 설정 ##### 
+### limits.conf 설정
+[root@localhost ~]# vi /etc/security/limits.conf
+[root@localhost ~]# cat /etc/security/limits.conf
+# /etc/security/limits.conf
+# ...
+# End of file
+## 메뉴얼에서는 * 인 4개만 추가하지만, Core 파일 설정등을 위해서 아래 6줄 추가
+root    soft    nproc    unlimited
+* soft nofile 524288
+* hard nofile 524288
+* soft nproc 131072
+* hard nproc 131072
+gpadmin soft core unlimited
+
+### /etc/security/limits.d/20-nproc.conf 설정
+[root@localhost ~]# vi /etc/security/limits.d/20-nproc.conf
+[root@localhost ~]# cat /etc/security/limits.d/20-nproc.conf
+# Default limit for number of user's processes to prevent
+# accidental fork bombs.
+# See rhbz #432903 for reasoning.
+
+*          soft    nproc     4096
+root       soft    nproc     unlimited
+
+* soft nofile 524288
+* hard nofile 524288
+* soft nproc 131072
+* hard nproc 131072
+[root@localhost ~]#
+
+##### XFS Mount Options 설정 ##### 
+[root@localhost ~]# sed -i 's/xfs     defaults/xfs     nodev,noatime,nobarrier,inode64/g' /etc/fstab
+[root@localhost ~]# sed -i 's/xfs \tdefaults/xfs     nodev,noatime,nobarrier,inode64/g' /etc/fstab
+[root@localhost ~]# cat /etc/fstab | grep "xfs"
+/dev/mapper/centos-root /                       xfs     nodev,noatime,nobarrier,inode64        0 0
+UUID=92b854b6-aef1-4f43-97aa-619cb45d30e9 /boot                   xfs     nodev,noatime,nobarrier,inode64        0 0
+[root@localhost ~]#
+
+##### Disk I/O 설정 ##### 
+### Disk I/O 설정값 확인 및 rc.local 상태 체크
+### 8192 ==>  16384로 변경
+[root@localhost ~]# /sbin/blockdev --getra /dev/sd*
+8192
+8192
+8192
+[root@localhost ~]# systemctl status rc-local
+● rc-local.service - /etc/rc.d/rc.local Compatibility
+   Loaded: loaded (/usr/lib/systemd/system/rc-local.service; static; vendor preset: disabled)
+   Active: inactive (dead)                                                   ####<<  Active: inactive (dead)
+[root@localhost ~]#
+### Disk I/O 설정 및 rc.local 활성화
+[root@localhost ~]# vi /etc/rc.local
+[root@localhost ~]# cat /etc/rc.local
+#!/bin/bash
+#...
+touch /var/lock/subsys/local
+/sbin/blockdev --setra 16384 /dev/sd*   ####<<< 설정 추가
+[root@localhost ~]#
+[root@localhost ~]#
+[root@localhost ~]# chmod +x /etc/rc.d/rc.local
+[root@localhost ~]# systemctl start rc-local
+[root@localhost ~]# systemctl enable rc-local
+[root@localhost ~]# systemctl status rc-local
+● rc-local.service - /etc/rc.d/rc.local Compatibility
+   Loaded: loaded (/usr/lib/systemd/system/rc-local.service; static; vendor preset: disabled)
+   Active: active (exited) since Tue 2020-09-29 06:25:22 KST; 16s ago           ####<<  Active: active (exited), 확인 필요
+Sep 29 06:25:22 mdw systemd[1]: Starting /etc/rc.d/rc.local Compatibility...
+Sep 29 06:25:22 mdw systemd[1]: Started /etc/rc.d/rc.local Compatibility.
+[root@localhost ~]#
+
+##### Disk I/O scheduler 와 Transparent Huge Pages 설정 #####
+### Disk I/O scheduler 설정
+[root@localhost ~]# grubby --update-kernel=ALL --args="elevator=deadline"
+[root@localhost ~]# grubby --update-kernel=ALL --args="transparent_hugepage=never"
+[root@localhost ~]# grubby --info=ALL | grep "elevator"
+args="ro crashkernel=auto rd.lvm.lv=centos/root rd.lvm.lv=centos/swap rhgb quiet LANG=en_US.UTF-8 elevator=deadline transparent_hugepage=never"
+args="ro crashkernel=auto rd.lvm.lv=centos/root rd.lvm.lv=centos/swap rhgb quiet elevator=deadline transparent_hugepage=never"
+[root@localhost ~]#
+### Transparent Huge Pages 설정
+[root@localhost ~]# cat /sys/kernel/mm/*transparent_hugepage/enabled
+[always] madvise never
+[root@localhost ~]#
+[root@localhost ~]# sed -i 's/#RemoveIPC=no/RemoveIPC=no/g' /etc/systemd/logind.conf
+[root@localhost ~]# grep 'RemoveIPC=no' /etc/systemd/logind.conf
+RemoveIPC=no
+[root@localhost ~]#
+
+##### sshd_config 설정 #####
+[root@localhost ~]# cat /etc/ssh/sshd_config | egrep "MaxStartup|UseDNS"
+#UseDNS no
+#MaxStartups 10:30:100
+[root@localhost ~]# sed -i 's/#UseDNS no/UseDNS no/g' /etc/ssh/sshd_config
+[root@localhost ~]# sed -i 's/#MaxStartups 10:30:100/MaxStartups 10:30:200/g' /etc/ssh/sshd_config
+[root@localhost ~]# cat /etc/ssh/sshd_config | egrep "MaxStartup|UseDNS"
+UseDNS no
+MaxStartups 10:30:200
+
+##### 시스템 Reboot ######
+[root@localhost ~]# sync;sync;sync
+[root@localhost ~]# reboot
+
+##########################################
+######### Greenplum 설치, Root 계정 필요
+##########################################
+
+##### Greenplum 계정 생성 및 ssh 설정 #####
+[root@mdw ~]# groupadd gpadmin
+[root@mdw ~]# useradd gpadmin -r -m -g gpadmin
+[root@mdw ~]# passwd gpadmin
+Changing password for user gpadmin.
+New password:
+BAD PASSWORD: The password fails the dictionary check - it is based on a dictionary word
+Retype new password:
+passwd: all authentication tokens updated successfully.
+[root@mdw ~]#
+
+##### Sudo 설정 ######
+[root@mdw staging]# usermod -aG wheel gpadmin
+[root@mdw staging]# cat /etc/group | grep wheel
+wheel:x:10:gpadmin
+[root@mdw staging]#
+[root@mdw ~]# vi /etc/sudoers
+[root@mdw ~]# cat /etc/sudoers | egrep "%wheel"
+%wheel	ALL=(ALL)	ALL
+%wheel	ALL=(ALL)	NOPASSWD: ALL  #####<<<< # 주석 삭제
+[root@mdw ~]#
+
+##### 설치 파일 경로 생성 #####
+[root@mdw ~]# mkdir -p /data/staging
+[root@mdw ~]# chown -R gpadmin:gpadmin /data
+
+### 해당 디렉토리에 Greenplum 설치 File 업로드
+lsanghee-a01:Downloads sanghee$ scp greenplum* gpadmin@172.16.25.235:/data/staging
+gpadmin@172.16.25.235's password:
+greenplum-cc-web-6.3.0-gp6-rhel7-x86_64.zip     100%   69MB  81.4MB/s   00:00
+greenplum-db-6.11.1-rhel7-x86_64.rpm            100%  182MB  47.0MB/s   00:03
+lsanghee-a01:Downloads sanghee$
+
+
+##### Greenplum 설치 ######
+### Dependency 가 많기 때문에, OS 이미지를 yum repository 구성 후 설치하는 것을 권고
+[root@mdw staging]# yum install greenplum-db-6.11.1-rhel7-x86_64.rpm
+Dependencies Resolved
+
+===================================================================================
+ Package                         Arch       Version            Repository     Size
+===================================================================================
+Installing:                      
+ greenplum-db-6                  x86_64     6.11.1-1.el7       /greenplum-db-503 M
+Installing for dependencies:     
+ apr                             x86_64     1.4.8-5.el7        base          103 k
+ apr-util                        x86_64     1.5.2-6.el7        base           92 k
+ bzip2                           x86_64     1.0.6-13.el7       base           52 k
+ keyutils-libs-devel             x86_64     1.5.8-3.el7        base           37 k
+ krb5-devel                      x86_64     1.15.1-46.el7      base          272 k
+ libcom_err-devel                x86_64     1.42.9-17.el7      base           32 k
+ libevent                        x86_64     2.0.21-4.el7       base          214 k
+ libkadm5                        x86_64     1.15.1-46.el7      base          179 k
+ libselinux-devel                x86_64     2.5-15.el7         base          187 k
+ libsepol-devel                  x86_64     2.5-10.el7         base           77 k
+ libverto-devel                  x86_64     0.2.5-4.el7        base           12 k
+ libyaml                         x86_64     0.1.4-11.el7_0     base           55 k
+ pcre-devel                      x86_64     8.32-17.el7        base          480 k
+ perl                            x86_64     4:5.16.3-295.el7   base          8.0 M
+ perl-Carp                       noarch     1.26-244.el7       base           19 k
+ perl-Encode                     x86_64     2.51-7.el7         base          1.5 M
+ perl-Exporter                   noarch     5.68-3.el7         base           28 k
+ perl-File-Path                  noarch     2.09-2.el7         base           26 k
+ perl-File-Temp                  noarch     0.23.01-3.el7      base           56 k
+ perl-Filter                     x86_64     1.49-3.el7         base           76 k
+ perl-Getopt-Long                noarch     2.40-3.el7         base           56 k
+ perl-HTTP-Tiny                  noarch     0.033-3.el7        base           38 k
+ perl-PathTools                  x86_64     3.40-5.el7         base           82 k
+ perl-Pod-Escapes                noarch     1:1.04-295.el7     base           51 k
+ perl-Pod-Perldoc                noarch     3.20-4.el7         base           87 k
+ perl-Pod-Simple                 noarch     1:3.28-4.el7       base          216 k
+ perl-Pod-Usage                  noarch     1.63-3.el7         base           27 k
+ perl-Scalar-List-Utils          x86_64     1.27-248.el7       base           36 k
+ perl-Socket                     x86_64     2.010-5.el7        base           49 k
+ perl-Storable                   x86_64     2.45-3.el7         base           77 k
+ perl-Text-ParseWords            noarch     3.29-4.el7         base           14 k
+ perl-Time-HiRes                 x86_64     4:1.9725-3.el7     base           45 k
+ perl-Time-Local                 noarch     1.2300-2.el7       base           24 k
+ perl-constant                   noarch     1.27-2.el7         base           19 k
+ perl-libs                       x86_64     4:5.16.3-295.el7   base          689 k
+ perl-macros                     x86_64     4:5.16.3-295.el7   base           44 k
+ perl-parent                     noarch     1:0.225-244.el7    base           12 k
+ perl-podlators                  noarch     2.5.1-3.el7        base          112 k
+ perl-threads                    x86_64     1.87-4.el7         base           49 k
+ perl-threads-shared             x86_64     1.43-6.el7         base           39 k
+ rsync                           x86_64     3.1.2-10.el7       base          404 k
+ zip                             x86_64     3.0-11.el7         base          260 k
+Updating for dependencies:       
+ e2fsprogs                       x86_64     1.42.9-17.el7      base          699 k
+ e2fsprogs-libs                  x86_64     1.42.9-17.el7      base          168 k
+ krb5-libs                       x86_64     1.15.1-46.el7      base          809 k
+ libcom_err                      x86_64     1.42.9-17.el7      base           42 k
+ libselinux                      x86_64     2.5-15.el7         base          162 k
+ libselinux-python               x86_64     2.5-15.el7         base          236 k
+ libselinux-utils                x86_64     2.5-15.el7         base          151 k
+ libsepol                        x86_64     2.5-10.el7         base          297 k
+ libss                           x86_64     1.42.9-17.el7      base           46 k
+===================================================================================
+Install  1 Package  (+42 Dependent packages)
+Upgrade             (  9 Dependent packages)
+
+Total size: 519 M
+Total download size: 16 M
+Is this ok [y/d/N]: y
+....
+Complete!
+[root@mdw staging]#
+
+###### gpadmin 권한 변경  ######
+[root@mdw staging]# chown -R gpadmin:gpadmin /usr/local/greenplum-db*
+
+###### gpadmin ssh 키 생성 및 Copy ######
+### ssh key 생성
+[root@mdw ~]# su - gpadmin
+[gpadmin@mdw ~]$ ssh-keygen -t rsa -b 4096
+[gpadmin@mdw ~]$
+
+### ssh 키 Copy 
+[gpadmin@mdw ~]$ source /usr/local/greenplum-db/greenplum_path.sh
+[gpadmin@mdw ~]$ ssh-copy-id mdw
+Are you sure you want to continue connecting (yes/no)? yes
+gpadmin@mdw's password:
+Number of key(s) added: 1
+[gpadmin@mdw ~]$
+
+### ssh 키 테스트
+[gpadmin@mdw ~]$ ssh mdw
+Last login: Tue Sep 29 09:10:32 2020
+[gpadmin@mdw ~]$
+
+
+##########################################
+######### Greenplum 초기화 구성
+##########################################
+
+##### Greenplum Data Storage 구성 #####
+[root@mdw staging]# mkdir -p /data/master
+[root@mdw staging]# mkdir -p /data/primary
+[root@mdw staging]# mkdir -p /data/mirror
+[root@mdw staging]# chown -R gpadmin:gpadmin /data
+[root@mdw staging]#
+
+##### Greenplum 초기화 구성 파일 생성 #####
+### 설정 파일 복사
+[root@mdw staging]# su - gpadmin
+[gpadmin@mdw ~]$ mkdir gpconfigs
+[gpadmin@mdw ~]$ source /usr/local/greenplum-db/greenplum_path.sh
+[gpadmin@mdw ~]$ cp $GPHOME/docs/cli_help/gpconfigs/gpinitsystem_config /home/gpadmin/gpconfigs/
+[gpadmin@mdw ~]$ cd gpconfigs/
+[gpadmin@mdw gpconfigs]$ vi hostfile_all
+[gpadmin@mdw gpconfigs]$ cat hostfile_all
+mdw
+[gpadmin@mdw gpconfigs]$ vi hostfile_seg
+[gpadmin@mdw gpconfigs]$ cat hostfile_seg
+mdw
+[gpadmin@mdw gpconfigs]$
+
+### 설정 파일 수정
+[gpadmin@mdw gpconfigs]$ vi gpinitsystem_config
+### 이줄을 
+declare -a DATA_DIRECTORY=(/data1/primary /data1/primary /data1/primary /data2/primary /data2/primary /data2/primary)
+==>
+### 아래 줄로 변경, /data/primary 가 반복적으로 나오는 것이 맞음. 아래의 경우에는 4개의 세그먼트 인스턴스 생성
+declare -a DATA_DIRECTORY=(/data/primary /data/primary /data/primary /data/primary )
+
+### 변경 후 확인
+[gpadmin@mdw gpconfigs]$ cat /home/gpadmin/gpconfigs/gpinitsystem_config | grep declare | grep -v MIRROR_DATA_DIRECTORY
+declare -a DATA_DIRECTORY=(/data/primary /data/primary /data/primary /data/primary )
+
+##### Greenplum 초기화 구성 #####(싱글머신일 때 3분 내외)
+[gpadmin@mdw gpconfigs]$ gpinitsystem -c ./gpinitsystem_config -n C -h ./hostfile_seg
+Continue with Greenplum creation Yy|Nn (default=N):
+> y
+[gpadmin@mdw gpconfigs]$
+20200929:09:28:44:011440 gpinitsystem:mdw:gpadmin-[INFO]:-update gpadmin .bashrc file with the following
+20200929:09:28:44:011440 gpinitsystem:mdw:gpadmin-[INFO]:-1. Ensure that the greenplum_path.sh file is sourced
+20200929:09:28:44:011440 gpinitsystem:mdw:gpadmin-[INFO]:-2. Add "export MASTER_DATA_DIRECTORY=/data/master/gpseg-1"
+20200929:09:28:44:011440 gpinitsystem:mdw:gpadmin-[INFO]:-   to access the Greenplum scripts for this instance:
+20200929:09:28:44:011440 gpinitsystem:mdw:gpadmin-[INFO]:-   or, use -d /data/master/gpseg-1 option for the Greenplum scripts
+20200929:09:28:44:011440 gpinitsystem:mdw:gpadmin-[INFO]:-   Example gpstate -d /data/master/gpseg-1
+
+##### .bashrc 에 설정 적용 #####
+[gpadmin@mdw gpconfigs]$ vi ~/.bashrc
+### 아래 두줄 추가
+source /usr/local/greenplum-db/greenplum_path.sh
+export MASTER_DATA_DIRECTORY=/data/master/gpseg-1
+
+### 확인
+[gpadmin@mdw gpconfigs]$ cat ~/.bashrc
+source /usr/local/greenplum-db/greenplum_path.sh
+export MASTER_DATA_DIRECTORY=/data/master/gpseg-1
+
+### Greenplum 설정 파라미터 로딩
+[gpadmin@mdw gpconfigs]$ source ~/.bashrc
+
+### Greenplum 상태 체크
+[gpadmin@mdw gpconfigs]$ gpstate
+20200929:09:31:10:016062 gpstate:mdw:gpadmin-[INFO]:-Starting gpstate with args:
+20200929:09:31:10:016062 gpstate:mdw:gpadmin-[INFO]:-local Greenplum Version: 'postgres (Greenplum Database) 6.11.1 build commit:df5f06d6fecffb4de64ab4ed2a1deb3a45efa37c'
+20200929:09:31:10:016062 gpstate:mdw:gpadmin-[INFO]:-master Greenplum Version: 'PostgreSQL 9.4.24 (Greenplum Database 6.11.1 build commit:df5f06d6fecffb4de64ab4ed2a1deb3a45efa37c) on x86_64-unknown-linux-gnu, compiled by gcc (GCC) 6.4.0, 64-bit compiled on Sep 17 2020 03:08:40'
+20200929:09:31:10:016062 gpstate:mdw:gpadmin-[INFO]:-Obtaining Segment details from master...
+20200929:09:31:10:016062 gpstate:mdw:gpadmin-[INFO]:-Gathering data from segments...
+20200929:09:31:10:016062 gpstate:mdw:gpadmin-[INFO]:-Greenplum instance status summary
+20200929:09:31:10:016062 gpstate:mdw:gpadmin-[INFO]:-----------------------------------------------------
+20200929:09:31:11:016062 gpstate:mdw:gpadmin-[INFO]:-   Master instance                                = Active
+20200929:09:31:11:016062 gpstate:mdw:gpadmin-[INFO]:-   Master standby                                 = No master standby configured
+20200929:09:31:11:016062 gpstate:mdw:gpadmin-[INFO]:-   Total segment instance count from metadata     = 4
+20200929:09:31:11:016062 gpstate:mdw:gpadmin-[INFO]:-----------------------------------------------------
+20200929:09:31:11:016062 gpstate:mdw:gpadmin-[INFO]:-   Primary Segment Status
+20200929:09:31:11:016062 gpstate:mdw:gpadmin-[INFO]:-----------------------------------------------------
+20200929:09:31:11:016062 gpstate:mdw:gpadmin-[INFO]:-   Total primary segments                         = 4
+20200929:09:31:11:016062 gpstate:mdw:gpadmin-[INFO]:-   Total primary segment valid (at master)        = 4
+20200929:09:31:11:016062 gpstate:mdw:gpadmin-[INFO]:-   Total primary segment failures (at master)     = 0
+20200929:09:31:11:016062 gpstate:mdw:gpadmin-[INFO]:-   Total number of postmaster.pid files missing   = 0
+20200929:09:31:11:016062 gpstate:mdw:gpadmin-[INFO]:-   Total number of postmaster.pid files found     = 4
+20200929:09:31:11:016062 gpstate:mdw:gpadmin-[INFO]:-   Total number of postmaster.pid PIDs missing    = 0
+20200929:09:31:11:016062 gpstate:mdw:gpadmin-[INFO]:-   Total number of postmaster.pid PIDs found      = 4
+20200929:09:31:11:016062 gpstate:mdw:gpadmin-[INFO]:-   Total number of /tmp lock files missing        = 0
+20200929:09:31:11:016062 gpstate:mdw:gpadmin-[INFO]:-   Total number of /tmp lock files found          = 4
+20200929:09:31:11:016062 gpstate:mdw:gpadmin-[INFO]:-   Total number postmaster processes missing      = 0
+20200929:09:31:11:016062 gpstate:mdw:gpadmin-[INFO]:-   Total number postmaster processes found        = 4
+20200929:09:31:11:016062 gpstate:mdw:gpadmin-[INFO]:-----------------------------------------------------
+20200929:09:31:11:016062 gpstate:mdw:gpadmin-[INFO]:-   Mirror Segment Status
+20200929:09:31:11:016062 gpstate:mdw:gpadmin-[INFO]:-----------------------------------------------------
+20200929:09:31:11:016062 gpstate:mdw:gpadmin-[INFO]:-   Mirrors not configured on this array
+20200929:09:31:11:016062 gpstate:mdw:gpadmin-[INFO]:-----------------------------------------------------
+[gpadmin@mdw gpconfigs]$
+
+##### Greenplum 외부 접근 권한 추가 ##### 
+### test용 database 생성
+[gpadmin@mdw gpconfigs]$ createdb gpadmin
+
+### Greenplum 접속 테스트
+[gpadmin@mdw gpconfigs]$ psql
+psql (9.4.24)
+Type "help" for help.
+
+gpadmin=# alter role gpadmin password 'changeme';
+ALTER ROLE
+gpadmin=# \q
+
+### Greeplum gpadmin(super) 유저 패스워드 설정
+[gpadmin@mdw gpconfigs]$ psql -c "alter role gpadmin password 'changeme';"
+ALTER ROLE
+[gpadmin@mdw gpconfigs]$
+
+### Greenlum 외부 접근 권한 추가
+[gpadmin@mdw gpconfigs]$ cd $MASTER_DATA_DIRECTORY
+[gpadmin@mdw gpseg-1]$ vi pg_hba.conf
+## 아래줄 추가
+host     all         all             0.0.0.0/0      md5
+
+### Greenplum 외부 접근 권한 추가 확인
+[gpadmin@mdw gpseg-1]$ tail pg_hba.conf
+#...
+host     replication gpadmin         samehost       trust
+host     replication gpadmin         172.16.25.235/32       trust
+
+host     all         all             0.0.0.0/0      md5  ########<<<< 추가 확인
+
+### Greenplum 설정 반영
+[gpadmin@mdw gpseg-1]$ gpstop -u
+20200929:09:33:25:016187 gpstop:mdw:gpadmin-[INFO]:-Starting gpstop with args: -u
+20200929:09:33:25:016187 gpstop:mdw:gpadmin-[INFO]:-Gathering information and validating the environment...
+20200929:09:33:25:016187 gpstop:mdw:gpadmin-[INFO]:-Obtaining Greenplum Master catalog information
+20200929:09:33:25:016187 gpstop:mdw:gpadmin-[INFO]:-Obtaining Segment details from master...
+20200929:09:33:25:016187 gpstop:mdw:gpadmin-[INFO]:-Greenplum Version: 'postgres (Greenplum Database) 6.11.1 build commit:df5f06d6fecffb4de64ab4ed2a1deb3a45efa37c'
+20200929:09:33:25:016187 gpstop:mdw:gpadmin-[INFO]:-Signalling all postmaster processes to reload
+[gpadmin@mdw gpseg-1]$
+
+#####################################
+### Greenplum 관련 Command
+#####################################
+[gpadmin@mdw gpconfigs]$ gpstart -a   #### Greenplum startup
+[gpadmin@mdw gpconfigs]$ gpstop -af   #### Greenplum shutdown
+[gpadmin@mdw gpconfigs]$ gpstate      #### Greenplum 상태 확인
+[gpadmin@mdw gpconfigs]$ gpstop -u    #### Greenplum 파일 설정 변경 후 반영
+
+##########################################
+######### Greenplum Command Center 설치
+##########################################
+
+##### Greenplum command center 설치 #####
+[gpadmin@mdw greenplum-cc-web-6.3.0-gp6-rhel7-x86_64]$ yum install unzip
+[gpadmin@mdw greenplum-cc-web-6.3.0-gp6-rhel7-x86_64]$ cd /data/staging/
+[gpadmin@mdw greenplum-cc-web-6.3.0-gp6-rhel7-x86_64]$ unzip greenplum-cc-web-6.3.0-gp6-rhel7-x86_64.zip
+Archive:  greenplum-cc-web-6.3.0-gp6-rhel7-x86_64.zip
+   creating: greenplum-cc-web-6.3.0-gp6-rhel7-x86_64/
+  inflating: greenplum-cc-web-6.3.0-gp6-rhel7-x86_64/gpccinstall-6.3.0
+[gpadmin@mdw greenplum-cc-web-6.3.0-gp6-rhel7-x86_64]$
+[gpadmin@mdw greenplum-cc-web-6.3.0-gp6-rhel7-x86_64]$ sudo mkdir -p /usr/local/greenplum-cc-6.3.0;
+[gpadmin@mdw greenplum-cc-web-6.3.0-gp6-rhel7-x86_64]$ sudo chown -R gpadmin:gpadmin /usr/local/greenplum-cc-6.3.0
+[gpadmin@mdw greenplum-cc-web-6.3.0-gp6-rhel7-x86_64]$ sudo ln -s /usr/local/greenplum-cc-6.3.0 /usr/local/greenplum-cc
+
+[gpadmin@mdw greenplum-cc-web-6.3.0-gp6-rhel7-x86_64]$ ./gpccinstall-6.3.0
+END USER LICENSE AGREEMENT
+...
+I HAVE READ AND AGREE TO THE TERMS OF THE ABOVE PIVOTAL GREENPLUM DATABASE
+END USER LICENSE AGREEMENT.
+Do you agree to the Pivotal Greenplum Command Center End User License Agreement? Yy/Nn (Default=Y) ####< Enter
+
+
+Where would you like to install Greenplum Command Center? (Default=/usr/local)     ####< Enter
+Greenplum Command Center will be installed to /usr/local/greenplum-cc-6.3.0
+
+What would you like to name this installation of Greenplum Command Center? (Default=gpcc) ####< Enter
+
+What port would you like gpcc webserver to use? (Default=28080)####< Enter
+
+Would you like enable SSL? Yy/Nn (Default=N)      ####< Enter
+
+Please choose a display language (Default=English)####< Enter 또는 3 Enter
+1.  English
+2.  Chinese
+3.  Korean
+4.  Russian
+5.  Japanese
+
+3
+
+INSTALLATION IN PROGRESS...
+********************************************************************************
+* INSTALLATION COMPLETED SUCCESSFULLY                                          *
+* Source the gpcc_path.sh or add it to your bashrc file to use gpcc command    *
+* utility.                                                                     *
+* To see the GPCC web UI, you must first start the GPCC webserver.             *
+* To start the GPCC webserver on the current host, run gpcc start.             *
+********************************************************************************
+
+To manage Command Center, use the gpcc command-line utility.
+Usage:
+  gpcc [OPTIONS] <command>
+
+Application Options:
+  -v, --version   Show Greenplum Command Center version
+      --settings  Print the current configuration settings
+
+Help Options:
+  -h, --help      Show this help message
+
+Available commands:
+  help        Print list of commands
+  krbdisable  Disables kerberos authentication
+  krbenable   Enables kerberos authentication
+  start       Starts Greenplum Command Center webserver and metrics collection agents
+              with [-W] option to force password prompt for GPDB user gpmon [optional]
+  status      Print agent status
+              with [-W] option to force password prompt for GPDB user gpmon [optional]
+  stop        Stops Greenplum Command Center webserver and metrics collection agents
+              with [-W] option to force password prompt for GPDB user gpmon [optional]
+
+##### Greenplum command center 환경 설정  #####
+[gpadmin@mdw greenplum-cc-web-6.3.0-gp6-rhel7-x86_64]$
+[gpadmin@mdw greenplum-cc-web-6.3.0-gp6-rhel7-x86_64]$ vi ~/.bashrc
+source /usr/local/greenplum-cc/gpcc_path.sh             ###<< 라인 추가
+[gpadmin@mdw greenplum-cc-web-6.3.0-gp6-rhel7-x86_64]$ cat ~/.bashrc
+# .bashrc
+
+# User specific aliases and functions
+
+source /usr/local/greenplum-db/greenplum_path.sh
+export MASTER_DATA_DIRECTORY=/data/master/gpseg-1
+source /usr/local/greenplum-cc/gpcc_path.sh             ###<< 라인 추가 확인
+
+[gpadmin@mdw greenplum-cc-web-6.3.0-gp6-rhel7-x86_64]$
+
+##### Greenplum command center start  #####
+[gpadmin@mdw greenplum-cc-web-6.3.0-gp6-rhel7-x86_64]$ gpcc start
+2020-09-29 10:34:28 Starting the gpcc agents and webserver...
+2020-09-29 10:34:31 Agent successfully started on 1/1 hosts
+2020-09-29 10:34:31 View Greenplum Command Center at http://mdw:28080
+[gpadmin@mdw greenplum-cc-web-6.3.0-gp6-rhel7-x86_64]$ gpcc status
+2020-09-29 10:34:35 GPCC webserver: running
+2020-09-29 10:34:36 GPCC agents: 1/1 agents running
+[gpadmin@mdw greenplum-cc-web-6.3.0-gp6-rhel7-x86_64]$
+
+##### Web Broswer #####
+### 웹 브라우즈에서 확인 마스터 IP:28080
+URL: http://172.16.25.235:28080/
+ID/PW : gpmon/changeme
+
+
+##### Greenplum command center Command #####
+[gpadmin@mdw greenplum-cc-web-6.3.0-gp6-rhel7-x86_64]$ gpcc start
+[gpadmin@mdw greenplum-cc-web-6.3.0-gp6-rhel7-x86_64]$ gpcc stop
+
+
+

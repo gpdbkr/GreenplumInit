@@ -142,3 +142,23 @@ CREATE OPERATOR pg_catalog.|| ( PROCEDURE = pg_catalog.intervalconcattext,    LE
 CREATE OPERATOR pg_catalog.|| ( PROCEDURE = pg_catalog.int8concattext,        LEFTARG=bigint, RIGHTARG=text, COMMUTATOR=OPERATOR(pg_catalog.||));
 CREATE OPERATOR pg_catalog.|| ( PROCEDURE = pg_catalog.numericconcattext,     LEFTARG=numeric, RIGHTARG=text, COMMUTATOR=OPERATOR(pg_catalog.||));
 CREATE OPERATOR pg_catalog.|| ( PROCEDURE = pg_catalog.timestampconcattext,   LEFTARG=timestamp without time zone, RIGHTARG=text, COMMUTATOR=OPERATOR(pg_catalog.||));
+
+
+-- Operator >
+CREATE FUNCTION pg_catalog.numericgtint(numeric, integer) RETURNS BOOLEAN STRICT IMMUTABLE LANGUAGE SQL AS $$SELECT $2::numeric > $1;$$;
+CREATE OPERATOR pg_catalog.= ( PROCEDURE = pg_catalog.numericgtint, LEFTARG=numeric, RIGHTARG=integer, COMMUTATOR=OPERATOR(pg_catalog.>));
+
+
+-- If there is an error during gpbackup, run the below script. 
+CREATE FUNCTION pg_catalog.oidcconcatunknown (oid, unknown) RETURNS text AS 'SELECT $1::pg_catalog.text || $2::pg_catalog.text' LANGUAGE sql IMMUTABLE STRICT;
+CREATE OPERATOR pg_catalog.|| (PROCEDURE = pg_catalog.oidcconcatunknown, LEFTARG = oid, RIGHTARG = unknown );
+
+CREATE FUNCTION pg_catalog.oidcconcatunknown2 (unknown,oid) RETURNS text AS 'SELECT $1::pg_catalog.text || $2::pg_catalog.text' LANGUAGE sql IMMUTABLE STRICT;
+CREATE OPERATOR pg_catalog.|| (PROCEDURE = pg_catalog.oidcconcatunknown2, LEFTARG = unknown, RIGHTARG = oid );
+
+-- decode error
+CREATE FUNCTION pg_catalog.numericeqint(numeric, integer) RETURNS BOOLEAN STRICT IMMUTABLE LANGUAGE SQL AS $$SELECT $2::numeric = $1;$$;
+CREATE OPERATOR pg_catalog.= ( PROCEDURE = pg_catalog.numericeqint, LEFTARG=numeric, RIGHTARG=integer, COMMUTATOR=OPERATOR(pg_catalog.=));
+
+CREATE FUNCTION pg_catalog.inteqnumeric(integer,numeric) RETURNS BOOLEAN STRICT IMMUTABLE LANGUAGE SQL AS $$SELECT $2 = $1::numeric;$$;
+CREATE OPERATOR pg_catalog.= ( PROCEDURE = pg_catalog.inteqnumeric, LEFTARG=integer, RIGHTARG=numeric, COMMUTATOR=OPERATOR(pg_catalog.=));
