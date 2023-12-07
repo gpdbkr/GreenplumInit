@@ -1,0 +1,723 @@
+# 세그먼트 only
+gpssh -h sdw1 -h sdw2 -h sdw3 -h sdw4 'mkdir /tmp/newspace'
+
+# 테이블스페이스 생성 시도
+psql -c "create tablespace newspace location '/tmp/newspace' "
+# ERROR:  directory "/tmp/newspace" does not exist
+# 이유 : In Greenplum Database, the file system location must exist on all hosts including the hosts running the master, standby mirror, each primary segment, and each mirror segment.
+
+# 마스터 only
+mkdir /tmp/newspace_master
+
+# 테이블스페이스 생성 시도
+psql << +
+create tablespace newspace location '/tmp/newspace_master' with (
+content0='/tmp/newspace', -- content-1은 지정할 수 없음
+content1='/tmp/newspace',
+content2='/tmp/newspace',
+content3='/tmp/newspace',
+content4='/tmp/newspace',
+content5='/tmp/newspace',
+content6='/tmp/newspace',
+content7='/tmp/newspace',
+content8='/tmp/newspace',
+content9='/tmp/newspace',
+content10='/tmp/newspace',
+content11='/tmp/newspace',
+content12='/tmp/newspace',
+content13='/tmp/newspace',
+content14='/tmp/newspace',
+content15='/tmp/newspace',
+content16='/tmp/newspace',
+content17='/tmp/newspace',
+content18='/tmp/newspace',
+content19='/tmp/newspace',
+content20='/tmp/newspace',
+content21='/tmp/newspace',
+content22='/tmp/newspace',
+content23='/tmp/newspace'
+);
++
+
+# 테이블스페이스 조회
+psql -c "select oid,* from pg_tablespace"
+
+   oid   |  spcname   | spcowner | spcacl | spcoptions
+---------+------------+----------+--------+------------
+    1663 | pg_default |       10 |        |
+    1664 | pg_global  |       10 |        |
+ 4606694 | newspace   |       10 |        |
+
+psql -c "select * from gp_tablespace_location(4606694) "
+
+ gp_segment_id |      tblspc_loc
+---------------+----------------------
+             3 | /tmp/newspace
+             6 | /tmp/newspace
+             8 | /tmp/newspace
+             2 | /tmp/newspace
+            17 | /tmp/newspace
+            20 | /tmp/newspace
+            22 | /tmp/newspace
+            12 | /tmp/newspace
+            13 | /tmp/newspace
+            14 | /tmp/newspace
+            18 | /tmp/newspace
+            21 | /tmp/newspace
+            23 | /tmp/newspace
+            19 | /tmp/newspace
+             0 | /tmp/newspace
+             1 | /tmp/newspace
+             4 | /tmp/newspace
+             5 | /tmp/newspace
+             7 | /tmp/newspace
+            11 | /tmp/newspace
+            15 | /tmp/newspace
+            16 | /tmp/newspace
+             9 | /tmp/newspace
+            10 | /tmp/newspace
+            -1 | /tmp/newspace_master
+
+# 생성된 디렉토리 확인
+
+gpssh -h sdw1 -h sdw2 -h sdw3 -h sdw4 'ls /tmp/newspace'
+
+[sdw1] 2  3  4  45  46  47  48  49  5 50  6  7           <--- 2~7   primary 45~50 mirror
+[sdw2] 10  11 12  13  27  28  29  30  31  32  8  9       <--- 8~13  primary 27~32 mirror
+[sdw3] 14  15 16  17  18  19  33  34  35  36  37  38     <--- 14~19 primary 33~38 mirror
+[sdw4] 20  21 22  23  24  25  39  40  41  42  43  44     <--- 20~25 primary 39~44 mirror 로 예상
+
+ls -l /tmp/newspace_master/1/GPDB_6_301908232
+# 빈 디렉토리
+
+# 정보 조회
+WITH spc AS (SELECT * FROM  gp_tablespace_location(4606694))
+  SELECT seg.role, spc.gp_segment_id as seg_id, seg.hostname, seg.datadir, tblspc_loc
+    FROM spc, gp_segment_configuration AS seg
+    WHERE spc.gp_segment_id = seg.content ORDER BY seg_id;
+
+ role | seg_id | hostname |        datadir         |      tblspc_loc
+------+--------+----------+------------------------+----------------------
+ m    |     -1 | sdw1     | /data1/master/gpseg-1  | /tmp/newspace_master
+ p    |     -1 | mdw      | /data1/master/gpseg-1  | /tmp/newspace_master
+ p    |      0 | sdw1     | /data1/primary/gpseg0  | /tmp/newspace
+ m    |      0 | sdw2     | /data1/mirror/gpseg0   | /tmp/newspace
+ m    |      1 | sdw2     | /data1/mirror/gpseg1   | /tmp/newspace
+ p    |      1 | sdw1     | /data1/primary/gpseg1  | /tmp/newspace
+ m    |      2 | sdw2     | /data2/mirror/gpseg2   | /tmp/newspace
+ p    |      2 | sdw1     | /data2/primary/gpseg2  | /tmp/newspace
+ p    |      3 | sdw1     | /data2/primary/gpseg3  | /tmp/newspace
+ m    |      3 | sdw2     | /data2/mirror/gpseg3   | /tmp/newspace
+ p    |      4 | sdw1     | /data3/primary/gpseg4  | /tmp/newspace
+ m    |      4 | sdw2     | /data3/mirror/gpseg4   | /tmp/newspace
+ p    |      5 | sdw1     | /data3/primary/gpseg5  | /tmp/newspace
+ m    |      5 | sdw2     | /data3/mirror/gpseg5   | /tmp/newspace
+ m    |      6 | sdw3     | /data1/mirror/gpseg6   | /tmp/newspace
+ p    |      6 | sdw2     | /data1/primary/gpseg6  | /tmp/newspace
+ p    |      7 | sdw2     | /data1/primary/gpseg7  | /tmp/newspace
+ m    |      7 | sdw3     | /data1/mirror/gpseg7   | /tmp/newspace
+ m    |      8 | sdw3     | /data2/mirror/gpseg8   | /tmp/newspace
+ p    |      8 | sdw2     | /data2/primary/gpseg8  | /tmp/newspace
+ p    |      9 | sdw2     | /data2/primary/gpseg9  | /tmp/newspace
+ m    |      9 | sdw3     | /data2/mirror/gpseg9   | /tmp/newspace
+ p    |     10 | sdw2     | /data3/primary/gpseg10 | /tmp/newspace
+ m    |     10 | sdw3     | /data3/mirror/gpseg10  | /tmp/newspace
+ p    |     11 | sdw2     | /data3/primary/gpseg11 | /tmp/newspace
+ m    |     11 | sdw3     | /data3/mirror/gpseg11  | /tmp/newspace
+ m    |     12 | sdw4     | /data1/mirror/gpseg12  | /tmp/newspace
+ p    |     12 | sdw3     | /data1/primary/gpseg12 | /tmp/newspace
+ m    |     13 | sdw4     | /data1/mirror/gpseg13  | /tmp/newspace
+ p    |     13 | sdw3     | /data1/primary/gpseg13 | /tmp/newspace
+ p    |     14 | sdw3     | /data2/primary/gpseg14 | /tmp/newspace
+ m    |     14 | sdw4     | /data2/mirror/gpseg14  | /tmp/newspace
+ m    |     15 | sdw4     | /data2/mirror/gpseg15  | /tmp/newspace
+ p    |     15 | sdw3     | /data2/primary/gpseg15 | /tmp/newspace
+ p    |     16 | sdw3     | /data3/primary/gpseg16 | /tmp/newspace
+ m    |     16 | sdw4     | /data3/mirror/gpseg16  | /tmp/newspace
+ p    |     17 | sdw3     | /data3/primary/gpseg17 | /tmp/newspace
+ m    |     17 | sdw4     | /data3/mirror/gpseg17  | /tmp/newspace
+ p    |     18 | sdw4     | /data1/primary/gpseg18 | /tmp/newspace
+ m    |     18 | sdw1     | /data1/mirror/gpseg18  | /tmp/newspace
+ p    |     19 | sdw4     | /data1/primary/gpseg19 | /tmp/newspace
+ m    |     19 | sdw1     | /data1/mirror/gpseg19  | /tmp/newspace
+ p    |     20 | sdw4     | /data2/primary/gpseg20 | /tmp/newspace
+ m    |     20 | sdw1     | /data2/mirror/gpseg20  | /tmp/newspace
+ p    |     21 | sdw4     | /data2/primary/gpseg21 | /tmp/newspace
+ m    |     21 | sdw1     | /data2/mirror/gpseg21  | /tmp/newspace
+ m    |     22 | sdw1     | /data3/mirror/gpseg22  | /tmp/newspace
+ p    |     22 | sdw4     | /data3/primary/gpseg22 | /tmp/newspace
+ p    |     23 | sdw4     | /data3/primary/gpseg23 | /tmp/newspace
+ m    |     23 | sdw1     | /data3/mirror/gpseg23  | /tmp/newspace
+(50 rows)
+
+# 테이블 생성
+psql -c "create table newtab (col1 int,col2 int) tablespace newspace distributed by (col1) "
+
+# 디렉토리 확인
+ls /tmp/newspace_master/1/GPDB_6_301908232
+376716
+
+ls -l /tmp/newspace_master/1/GPDB_6_301908232/376716
+-rw------- 1 gpadmin gpadmin 0  2월 23 18:49 3734257
+
+ssh -h sdw1 'ls /tmp/newspace/2'
+GPDB_6_301908232
+
+ssh -h sdw1 'ls /tmp/newspace/2/GPDB_6_301908232'
+376716
+
+ssh -h sdw1 'ls -l /tmp/newspace/2/GPDB_6_301908232/376716'
+-rw------- 1 gpadmin gpadmin 0  2월 23 18:49 3734155
+
+# 데이터입력
+psql -c "insert into newtab select i,i from generate_series (1,50) i"
+
+# 디렉토리 확인
+ls -l /tmp/newspace_master/1/GPDB_6_301908232/376716
+-rw------- 1 gpadmin gpadmin 0  2월 23 18:49 3734257  <---- 마스터 변경 없음
+
+ssh -h sdw1 'ls -l /tmp/newspace/2/GPDB_6_301908232/376716'
+-rw------- 1 gpadmin gpadmin 32768  2월 23 18:51 3734155
+
+#### drop table, drop tablespace 후 다시 테스트
+
+gpssh -h sdw1 'mkdir /tmp/newspace/seg0'
+gpssh -h sdw1 'mkdir /tmp/newspace/seg1'
+gpssh -h sdw1 'mkdir /tmp/newspace/seg2'
+gpssh -h sdw1 'mkdir /tmp/newspace/seg3'
+gpssh -h sdw1 'mkdir /tmp/newspace/seg4'
+gpssh -h sdw1 'mkdir /tmp/newspace/seg5'
+
+gpssh -h sdw2 'mkdir /tmp/newspace/seg6'
+gpssh -h sdw2 'mkdir /tmp/newspace/seg7'
+gpssh -h sdw2 'mkdir /tmp/newspace/seg8'
+gpssh -h sdw2 'mkdir /tmp/newspace/seg9'
+gpssh -h sdw2 'mkdir /tmp/newspace/seg10'
+gpssh -h sdw2 'mkdir /tmp/newspace/seg11'
+
+gpssh -h sdw3 'mkdir /tmp/newspace/seg12'
+gpssh -h sdw3 'mkdir /tmp/newspace/seg13'
+gpssh -h sdw3 'mkdir /tmp/newspace/seg14'
+gpssh -h sdw3 'mkdir /tmp/newspace/seg15'
+gpssh -h sdw3 'mkdir /tmp/newspace/seg16'
+gpssh -h sdw3 'mkdir /tmp/newspace/seg17'
+
+gpssh -h sdw4 'mkdir /tmp/newspace/seg18'
+gpssh -h sdw4 'mkdir /tmp/newspace/seg19'
+gpssh -h sdw4 'mkdir /tmp/newspace/seg20'
+gpssh -h sdw4 'mkdir /tmp/newspace/seg21'
+gpssh -h sdw4 'mkdir /tmp/newspace/seg22'
+gpssh -h sdw4 'mkdir /tmp/newspace/seg23'
+
+psql << +
+create tablespace newspace location '/tmp/newspace_master' with (
+content0='/tmp/newspace/seg0',
+content1='/tmp/newspace/seg1',
+content2='/tmp/newspace/seg2',
+content3='/tmp/newspace/seg3',
+content4='/tmp/newspace/seg4',
+content5='/tmp/newspace/seg5',
+content6='/tmp/newspace/seg6',
+content7='/tmp/newspace/seg7',
+content8='/tmp/newspace/seg8',
+content9='/tmp/newspace/seg9',
+content10='/tmp/newspace/seg10',
+content11='/tmp/newspace/seg11',
+content12='/tmp/newspace/seg12',
+content13='/tmp/newspace/seg13',
+content14='/tmp/newspace/seg14',
+content15='/tmp/newspace/seg15',
+content16='/tmp/newspace/seg16',
+content17='/tmp/newspace/seg17',
+content18='/tmp/newspace/seg18',
+content19='/tmp/newspace/seg19',
+content20='/tmp/newspace/seg20',
+content21='/tmp/newspace/seg21',
+content22='/tmp/newspace/seg22',
+content23='/tmp/newspace/seg23'
+);
++
+
+gpssh -h sdw1 'ls -l /tmp/newspace/*'
+[sdw1] /tmp/newspace/seg0:
+[sdw1] 합계 0
+[sdw1] drwx------ 3 gpadmin gpadmin 30  2월 23 19:50 2
+[sdw1]
+[sdw1] /tmp/newspace/seg1:
+[sdw1] 합계 0
+[sdw1] drwx------ 3 gpadmin gpadmin 30  2월 23 19:50 3
+[sdw1]
+[sdw1] /tmp/newspace/seg2:
+[sdw1] 합계 0
+[sdw1] drwx------ 3 gpadmin gpadmin 30  2월 23 19:50 4
+[sdw1]
+[sdw1] /tmp/newspace/seg3:
+[sdw1] 합계 0
+[sdw1] drwx------ 3 gpadmin gpadmin 30  2월 23 19:50 5
+[sdw1]
+[sdw1] /tmp/newspace/seg4:
+[sdw1] 합계 0
+[sdw1] drwx------ 3 gpadmin gpadmin 30  2월 23 19:50 6
+[sdw1]
+[sdw1] /tmp/newspace/seg5:
+[sdw1] 합계 0
+[sdw1] drwx------ 3 gpadmin gpadmin 30  2월 23 19:50 7
+
+# 미러가 안보임 (45~50)
+gpstate -c
+20210223:20:41:22:022738 gpstate:mdw:gpadmin-[INFO]:-Starting gpstate with args: -c
+20210223:20:41:22:022738 gpstate:mdw:gpadmin-[INFO]:-local Greenplum Version: 'postgres (Greenplum Database) 6.10.1 build commit:efba04ce26ebb29b535a255a5e95d1f5ebfde94e'
+20210223:20:41:22:022738 gpstate:mdw:gpadmin-[INFO]:-master Greenplum Version: 'PostgreSQL 9.4.24 (Greenplum Database 6.10.1 build commit:efba04ce26ebb29b535a255a5e95d1f5ebfde94e) on x86_64-unknown-linux-gnu, compiled by gcc (GCC) 6.4.0, 64-bit compiled on Aug 13 2020 02:56:29'
+20210223:20:41:22:022738 gpstate:mdw:gpadmin-[INFO]:-Obtaining Segment details from master...
+20210223:20:41:22:022738 gpstate:mdw:gpadmin-[INFO]:--------------------------------------------------------------
+20210223:20:41:22:022738 gpstate:mdw:gpadmin-[INFO]:--Current GPDB mirror list and status
+20210223:20:41:22:022738 gpstate:mdw:gpadmin-[INFO]:--Type = Group
+20210223:20:41:22:022738 gpstate:mdw:gpadmin-[INFO]:--------------------------------------------------------------
+20210223:20:41:22:022738 gpstate:mdw:gpadmin-[INFO]:-   Status                          Data State    Primary   Datadir                  Port   Mirror   Datadir                 Port
+20210223:20:41:22:022738 gpstate:mdw:gpadmin-[WARNING]:-Primary Active, Mirror Failed   Not In Sync   sdw1      /data1/primary/gpseg0    6000   sdw2     /data1/mirror/gpseg0    7000   <<<<<<<<
+20210223:20:41:22:022738 gpstate:mdw:gpadmin-[WARNING]:-Primary Active, Mirror Failed   Not In Sync   sdw1      /data1/primary/gpseg1    6001   sdw2     /data1/mirror/gpseg1    7001   <<<<<<<<
+20210223:20:41:22:022738 gpstate:mdw:gpadmin-[WARNING]:-Primary Active, Mirror Failed   Not In Sync   sdw1      /data2/primary/gpseg2    6002   sdw2     /data2/mirror/gpseg2    7002   <<<<<<<<
+20210223:20:41:22:022738 gpstate:mdw:gpadmin-[WARNING]:-Primary Active, Mirror Failed   Not In Sync   sdw1      /data2/primary/gpseg3    6003   sdw2     /data2/mirror/gpseg3    7003   <<<<<<<<
+20210223:20:41:22:022738 gpstate:mdw:gpadmin-[WARNING]:-Primary Active, Mirror Failed   Not In Sync   sdw1      /data3/primary/gpseg4    6004   sdw2     /data3/mirror/gpseg4    7004   <<<<<<<<
+20210223:20:41:22:022738 gpstate:mdw:gpadmin-[WARNING]:-Primary Active, Mirror Failed   Not In Sync   sdw1      /data3/primary/gpseg5    6005   sdw2     /data3/mirror/gpseg5    7005   <<<<<<<<
+20210223:20:41:22:022738 gpstate:mdw:gpadmin-[WARNING]:-Primary Active, Mirror Failed   Not In Sync   sdw2      /data1/primary/gpseg6    6000   sdw3     /data1/mirror/gpseg6    7000   <<<<<<<<
+20210223:20:41:22:022738 gpstate:mdw:gpadmin-[WARNING]:-Primary Active, Mirror Failed   Not In Sync   sdw2      /data1/primary/gpseg7    6001   sdw3     /data1/mirror/gpseg7    7001   <<<<<<<<
+20210223:20:41:22:022738 gpstate:mdw:gpadmin-[WARNING]:-Primary Active, Mirror Failed   Not In Sync   sdw2      /data2/primary/gpseg8    6002   sdw3     /data2/mirror/gpseg8    7002   <<<<<<<<
+20210223:20:41:22:022738 gpstate:mdw:gpadmin-[WARNING]:-Primary Active, Mirror Failed   Not In Sync   sdw2      /data2/primary/gpseg9    6003   sdw3     /data2/mirror/gpseg9    7003   <<<<<<<<
+20210223:20:41:22:022738 gpstate:mdw:gpadmin-[WARNING]:-Primary Active, Mirror Failed   Not In Sync   sdw2      /data3/primary/gpseg10   6004   sdw3     /data3/mirror/gpseg10   7004   <<<<<<<<
+20210223:20:41:22:022738 gpstate:mdw:gpadmin-[WARNING]:-Primary Active, Mirror Failed   Not In Sync   sdw2      /data3/primary/gpseg11   6005   sdw3     /data3/mirror/gpseg11   7005   <<<<<<<<
+20210223:20:41:22:022738 gpstate:mdw:gpadmin-[WARNING]:-Primary Active, Mirror Failed   Not In Sync   sdw3      /data1/primary/gpseg12   6000   sdw4     /data1/mirror/gpseg12   7000   <<<<<<<<
+20210223:20:41:22:022738 gpstate:mdw:gpadmin-[WARNING]:-Primary Active, Mirror Failed   Not In Sync   sdw3      /data1/primary/gpseg13   6001   sdw4     /data1/mirror/gpseg13   7001   <<<<<<<<
+20210223:20:41:22:022738 gpstate:mdw:gpadmin-[WARNING]:-Primary Active, Mirror Failed   Not In Sync   sdw3      /data2/primary/gpseg14   6002   sdw4     /data2/mirror/gpseg14   7002   <<<<<<<<
+20210223:20:41:22:022738 gpstate:mdw:gpadmin-[WARNING]:-Primary Active, Mirror Failed   Not In Sync   sdw3      /data2/primary/gpseg15   6003   sdw4     /data2/mirror/gpseg15   7003   <<<<<<<<
+20210223:20:41:22:022738 gpstate:mdw:gpadmin-[WARNING]:-Primary Active, Mirror Failed   Not In Sync   sdw3      /data3/primary/gpseg16   6004   sdw4     /data3/mirror/gpseg16   7004   <<<<<<<<
+20210223:20:41:22:022738 gpstate:mdw:gpadmin-[WARNING]:-Primary Active, Mirror Failed   Not In Sync   sdw3      /data3/primary/gpseg17   6005   sdw4     /data3/mirror/gpseg17   7005   <<<<<<<<
+20210223:20:41:22:022738 gpstate:mdw:gpadmin-[WARNING]:-Primary Active, Mirror Failed   Not In Sync   sdw4      /data1/primary/gpseg18   6000   sdw1     /data1/mirror/gpseg18   7000   <<<<<<<<
+20210223:20:41:22:022738 gpstate:mdw:gpadmin-[WARNING]:-Primary Active, Mirror Failed   Not In Sync   sdw4      /data1/primary/gpseg19   6001   sdw1     /data1/mirror/gpseg19   7001   <<<<<<<<
+20210223:20:41:22:022738 gpstate:mdw:gpadmin-[WARNING]:-Primary Active, Mirror Failed   Not In Sync   sdw4      /data2/primary/gpseg20   6002   sdw1     /data2/mirror/gpseg20   7002   <<<<<<<<
+20210223:20:41:22:022738 gpstate:mdw:gpadmin-[WARNING]:-Primary Active, Mirror Failed   Not In Sync   sdw4      /data2/primary/gpseg21   6003   sdw1     /data2/mirror/gpseg21   7003   <<<<<<<<
+20210223:20:41:22:022738 gpstate:mdw:gpadmin-[WARNING]:-Primary Active, Mirror Failed   Not In Sync   sdw4      /data3/primary/gpseg22   6004   sdw1     /data3/mirror/gpseg22   7004   <<<<<<<<
+20210223:20:41:22:022738 gpstate:mdw:gpadmin-[WARNING]:-Primary Active, Mirror Failed   Not In Sync   sdw4      /data3/primary/gpseg23   6005   sdw1     /data3/mirror/gpseg23   7005   <<<<<<<<
+20210223:20:41:22:022738 gpstate:mdw:gpadmin-[INFO]:--------------------------------------------------------------
+20210223:20:41:22:022738 gpstate:mdw:gpadmin-[WARNING]:-24 primary segment(s) are not synchronized
+
+gprecoverseg -F (gprecoverseg만 하면 안됨)
+
+20210223:20:42:19:023044 gprecoverseg:mdw:gpadmin-[INFO]:-Starting gprecoverseg with args: -F
+20210223:20:42:19:023044 gprecoverseg:mdw:gpadmin-[INFO]:-local Greenplum Version: 'postgres (Greenplum Database) 6.10.1 build commit:efba04ce26ebb29b535a255a5e95d1f5ebfde94e'
+20210223:20:42:19:023044 gprecoverseg:mdw:gpadmin-[INFO]:-master Greenplum Version: 'PostgreSQL 9.4.24 (Greenplum Database 6.10.1 build commit:efba04ce26ebb29b535a255a5e95d1f5ebfde94e) on x86_64-unknown-linux-gnu, compiled by gcc (GCC) 6.4.0, 64-bit compiled on Aug 13 2020 02:56:29'
+20210223:20:42:19:023044 gprecoverseg:mdw:gpadmin-[INFO]:-Obtaining Segment details from master...
+20210223:20:42:20:023044 gprecoverseg:mdw:gpadmin-[INFO]:-Heap checksum setting is consistent between master and the segments that are candidates for recoverseg
+20210223:20:42:20:023044 gprecoverseg:mdw:gpadmin-[INFO]:-Greenplum instance recovery parameters
+20210223:20:42:20:023044 gprecoverseg:mdw:gpadmin-[INFO]:----------------------------------------------------------
+20210223:20:42:20:023044 gprecoverseg:mdw:gpadmin-[INFO]:-Recovery type              = Standard
+20210223:20:42:20:023044 gprecoverseg:mdw:gpadmin-[INFO]:----------------------------------------------------------
+20210223:20:42:20:023044 gprecoverseg:mdw:gpadmin-[INFO]:-Recovery 1 of 24
+20210223:20:42:20:023044 gprecoverseg:mdw:gpadmin-[INFO]:----------------------------------------------------------
+20210223:20:42:20:023044 gprecoverseg:mdw:gpadmin-[INFO]:-   Synchronization mode                 = Full
+20210223:20:42:20:023044 gprecoverseg:mdw:gpadmin-[INFO]:-   Failed instance host                 = sdw2
+20210223:20:42:20:023044 gprecoverseg:mdw:gpadmin-[INFO]:-   Failed instance address              = sdw2
+20210223:20:42:20:023044 gprecoverseg:mdw:gpadmin-[INFO]:-   Failed instance directory            = /data1/mirror/gpseg0
+20210223:20:42:20:023044 gprecoverseg:mdw:gpadmin-[INFO]:-   Failed instance port                 = 7000
+20210223:20:42:20:023044 gprecoverseg:mdw:gpadmin-[INFO]:-   Recovery Source instance host        = sdw1
+20210223:20:42:20:023044 gprecoverseg:mdw:gpadmin-[INFO]:-   Recovery Source instance address     = sdw1
+20210223:20:42:20:023044 gprecoverseg:mdw:gpadmin-[INFO]:-   Recovery Source instance directory   = /data1/primary/gpseg0
+20210223:20:42:20:023044 gprecoverseg:mdw:gpadmin-[INFO]:-   Recovery Source instance port        = 6000
+20210223:20:42:20:023044 gprecoverseg:mdw:gpadmin-[INFO]:-   Recovery Target                      = in-place
+20210223:20:42:20:023044 gprecoverseg:mdw:gpadmin-[INFO]:----------------------------------------------------------
+20210223:20:42:20:023044 gprecoverseg:mdw:gpadmin-[INFO]:-Recovery 2 of 24
+20210223:20:42:20:023044 gprecoverseg:mdw:gpadmin-[INFO]:----------------------------------------------------------
+20210223:20:42:20:023044 gprecoverseg:mdw:gpadmin-[INFO]:-   Synchronization mode                 = Full
+20210223:20:42:20:023044 gprecoverseg:mdw:gpadmin-[INFO]:-   Failed instance host                 = sdw2
+20210223:20:42:20:023044 gprecoverseg:mdw:gpadmin-[INFO]:-   Failed instance address              = sdw2
+20210223:20:42:20:023044 gprecoverseg:mdw:gpadmin-[INFO]:-   Failed instance directory            = /data1/mirror/gpseg1
+20210223:20:42:20:023044 gprecoverseg:mdw:gpadmin-[INFO]:-   Failed instance port                 = 7001
+20210223:20:42:20:023044 gprecoverseg:mdw:gpadmin-[INFO]:-   Recovery Source instance host        = sdw1
+20210223:20:42:20:023044 gprecoverseg:mdw:gpadmin-[INFO]:-   Recovery Source instance address     = sdw1
+20210223:20:42:20:023044 gprecoverseg:mdw:gpadmin-[INFO]:-   Recovery Source instance directory   = /data1/primary/gpseg1
+20210223:20:42:20:023044 gprecoverseg:mdw:gpadmin-[INFO]:-   Recovery Source instance port        = 6001
+20210223:20:42:20:023044 gprecoverseg:mdw:gpadmin-[INFO]:-   Recovery Target                      = in-place
+20210223:20:42:20:023044 gprecoverseg:mdw:gpadmin-[INFO]:----------------------------------------------------------
+20210223:20:42:20:023044 gprecoverseg:mdw:gpadmin-[INFO]:-Recovery 3 of 24
+20210223:20:42:20:023044 gprecoverseg:mdw:gpadmin-[INFO]:----------------------------------------------------------
+20210223:20:42:20:023044 gprecoverseg:mdw:gpadmin-[INFO]:-   Synchronization mode                 = Full
+20210223:20:42:20:023044 gprecoverseg:mdw:gpadmin-[INFO]:-   Failed instance host                 = sdw2
+20210223:20:42:20:023044 gprecoverseg:mdw:gpadmin-[INFO]:-   Failed instance address              = sdw2
+20210223:20:42:20:023044 gprecoverseg:mdw:gpadmin-[INFO]:-   Failed instance directory            = /data2/mirror/gpseg2
+20210223:20:42:20:023044 gprecoverseg:mdw:gpadmin-[INFO]:-   Failed instance port                 = 7002
+20210223:20:42:20:023044 gprecoverseg:mdw:gpadmin-[INFO]:-   Recovery Source instance host        = sdw1
+20210223:20:42:20:023044 gprecoverseg:mdw:gpadmin-[INFO]:-   Recovery Source instance address     = sdw1
+20210223:20:42:20:023044 gprecoverseg:mdw:gpadmin-[INFO]:-   Recovery Source instance directory   = /data2/primary/gpseg2
+20210223:20:42:20:023044 gprecoverseg:mdw:gpadmin-[INFO]:-   Recovery Source instance port        = 6002
+20210223:20:42:20:023044 gprecoverseg:mdw:gpadmin-[INFO]:-   Recovery Target                      = in-place
+20210223:20:42:20:023044 gprecoverseg:mdw:gpadmin-[INFO]:----------------------------------------------------------
+20210223:20:42:20:023044 gprecoverseg:mdw:gpadmin-[INFO]:-Recovery 4 of 24
+20210223:20:42:20:023044 gprecoverseg:mdw:gpadmin-[INFO]:----------------------------------------------------------
+20210223:20:42:20:023044 gprecoverseg:mdw:gpadmin-[INFO]:-   Synchronization mode                 = Full
+20210223:20:42:20:023044 gprecoverseg:mdw:gpadmin-[INFO]:-   Failed instance host                 = sdw2
+20210223:20:42:20:023044 gprecoverseg:mdw:gpadmin-[INFO]:-   Failed instance address              = sdw2
+20210223:20:42:20:023044 gprecoverseg:mdw:gpadmin-[INFO]:-   Failed instance directory            = /data2/mirror/gpseg3
+20210223:20:42:20:023044 gprecoverseg:mdw:gpadmin-[INFO]:-   Failed instance port                 = 7003
+20210223:20:42:20:023044 gprecoverseg:mdw:gpadmin-[INFO]:-   Recovery Source instance host        = sdw1
+20210223:20:42:20:023044 gprecoverseg:mdw:gpadmin-[INFO]:-   Recovery Source instance address     = sdw1
+20210223:20:42:20:023044 gprecoverseg:mdw:gpadmin-[INFO]:-   Recovery Source instance directory   = /data2/primary/gpseg3
+20210223:20:42:20:023044 gprecoverseg:mdw:gpadmin-[INFO]:-   Recovery Source instance port        = 6003
+20210223:20:42:20:023044 gprecoverseg:mdw:gpadmin-[INFO]:-   Recovery Target                      = in-place
+20210223:20:42:20:023044 gprecoverseg:mdw:gpadmin-[INFO]:----------------------------------------------------------
+20210223:20:42:20:023044 gprecoverseg:mdw:gpadmin-[INFO]:-Recovery 5 of 24
+20210223:20:42:20:023044 gprecoverseg:mdw:gpadmin-[INFO]:----------------------------------------------------------
+20210223:20:42:20:023044 gprecoverseg:mdw:gpadmin-[INFO]:-   Synchronization mode                 = Full
+20210223:20:42:20:023044 gprecoverseg:mdw:gpadmin-[INFO]:-   Failed instance host                 = sdw2
+20210223:20:42:20:023044 gprecoverseg:mdw:gpadmin-[INFO]:-   Failed instance address              = sdw2
+20210223:20:42:20:023044 gprecoverseg:mdw:gpadmin-[INFO]:-   Failed instance directory            = /data3/mirror/gpseg4
+20210223:20:42:20:023044 gprecoverseg:mdw:gpadmin-[INFO]:-   Failed instance port                 = 7004
+20210223:20:42:20:023044 gprecoverseg:mdw:gpadmin-[INFO]:-   Recovery Source instance host        = sdw1
+20210223:20:42:20:023044 gprecoverseg:mdw:gpadmin-[INFO]:-   Recovery Source instance address     = sdw1
+20210223:20:42:20:023044 gprecoverseg:mdw:gpadmin-[INFO]:-   Recovery Source instance directory   = /data3/primary/gpseg4
+20210223:20:42:20:023044 gprecoverseg:mdw:gpadmin-[INFO]:-   Recovery Source instance port        = 6004
+20210223:20:42:20:023044 gprecoverseg:mdw:gpadmin-[INFO]:-   Recovery Target                      = in-place
+20210223:20:42:20:023044 gprecoverseg:mdw:gpadmin-[INFO]:----------------------------------------------------------
+20210223:20:42:20:023044 gprecoverseg:mdw:gpadmin-[INFO]:-Recovery 6 of 24
+20210223:20:42:20:023044 gprecoverseg:mdw:gpadmin-[INFO]:----------------------------------------------------------
+20210223:20:42:20:023044 gprecoverseg:mdw:gpadmin-[INFO]:-   Synchronization mode                 = Full
+20210223:20:42:20:023044 gprecoverseg:mdw:gpadmin-[INFO]:-   Failed instance host                 = sdw2
+20210223:20:42:20:023044 gprecoverseg:mdw:gpadmin-[INFO]:-   Failed instance address              = sdw2
+20210223:20:42:20:023044 gprecoverseg:mdw:gpadmin-[INFO]:-   Failed instance directory            = /data3/mirror/gpseg5
+20210223:20:42:20:023044 gprecoverseg:mdw:gpadmin-[INFO]:-   Failed instance port                 = 7005
+20210223:20:42:20:023044 gprecoverseg:mdw:gpadmin-[INFO]:-   Recovery Source instance host        = sdw1
+20210223:20:42:20:023044 gprecoverseg:mdw:gpadmin-[INFO]:-   Recovery Source instance address     = sdw1
+20210223:20:42:20:023044 gprecoverseg:mdw:gpadmin-[INFO]:-   Recovery Source instance directory   = /data3/primary/gpseg5
+20210223:20:42:20:023044 gprecoverseg:mdw:gpadmin-[INFO]:-   Recovery Source instance port        = 6005
+20210223:20:42:20:023044 gprecoverseg:mdw:gpadmin-[INFO]:-   Recovery Target                      = in-place
+20210223:20:42:20:023044 gprecoverseg:mdw:gpadmin-[INFO]:----------------------------------------------------------
+20210223:20:42:20:023044 gprecoverseg:mdw:gpadmin-[INFO]:-Recovery 7 of 24
+20210223:20:42:20:023044 gprecoverseg:mdw:gpadmin-[INFO]:----------------------------------------------------------
+20210223:20:42:20:023044 gprecoverseg:mdw:gpadmin-[INFO]:-   Synchronization mode                 = Full
+20210223:20:42:20:023044 gprecoverseg:mdw:gpadmin-[INFO]:-   Failed instance host                 = sdw3
+20210223:20:42:20:023044 gprecoverseg:mdw:gpadmin-[INFO]:-   Failed instance address              = sdw3
+20210223:20:42:20:023044 gprecoverseg:mdw:gpadmin-[INFO]:-   Failed instance directory            = /data1/mirror/gpseg6
+20210223:20:42:20:023044 gprecoverseg:mdw:gpadmin-[INFO]:-   Failed instance port                 = 7000
+20210223:20:42:20:023044 gprecoverseg:mdw:gpadmin-[INFO]:-   Recovery Source instance host        = sdw2
+20210223:20:42:20:023044 gprecoverseg:mdw:gpadmin-[INFO]:-   Recovery Source instance address     = sdw2
+20210223:20:42:20:023044 gprecoverseg:mdw:gpadmin-[INFO]:-   Recovery Source instance directory   = /data1/primary/gpseg6
+20210223:20:42:20:023044 gprecoverseg:mdw:gpadmin-[INFO]:-   Recovery Source instance port        = 6000
+20210223:20:42:20:023044 gprecoverseg:mdw:gpadmin-[INFO]:-   Recovery Target                      = in-place
+20210223:20:42:20:023044 gprecoverseg:mdw:gpadmin-[INFO]:----------------------------------------------------------
+20210223:20:42:20:023044 gprecoverseg:mdw:gpadmin-[INFO]:-Recovery 8 of 24
+20210223:20:42:20:023044 gprecoverseg:mdw:gpadmin-[INFO]:----------------------------------------------------------
+20210223:20:42:20:023044 gprecoverseg:mdw:gpadmin-[INFO]:-   Synchronization mode                 = Full
+20210223:20:42:20:023044 gprecoverseg:mdw:gpadmin-[INFO]:-   Failed instance host                 = sdw3
+20210223:20:42:20:023044 gprecoverseg:mdw:gpadmin-[INFO]:-   Failed instance address              = sdw3
+20210223:20:42:20:023044 gprecoverseg:mdw:gpadmin-[INFO]:-   Failed instance directory            = /data1/mirror/gpseg7
+20210223:20:42:20:023044 gprecoverseg:mdw:gpadmin-[INFO]:-   Failed instance port                 = 7001
+20210223:20:42:20:023044 gprecoverseg:mdw:gpadmin-[INFO]:-   Recovery Source instance host        = sdw2
+20210223:20:42:20:023044 gprecoverseg:mdw:gpadmin-[INFO]:-   Recovery Source instance address     = sdw2
+20210223:20:42:20:023044 gprecoverseg:mdw:gpadmin-[INFO]:-   Recovery Source instance directory   = /data1/primary/gpseg7
+20210223:20:42:20:023044 gprecoverseg:mdw:gpadmin-[INFO]:-   Recovery Source instance port        = 6001
+20210223:20:42:20:023044 gprecoverseg:mdw:gpadmin-[INFO]:-   Recovery Target                      = in-place
+20210223:20:42:20:023044 gprecoverseg:mdw:gpadmin-[INFO]:----------------------------------------------------------
+20210223:20:42:20:023044 gprecoverseg:mdw:gpadmin-[INFO]:-Recovery 9 of 24
+20210223:20:42:20:023044 gprecoverseg:mdw:gpadmin-[INFO]:----------------------------------------------------------
+20210223:20:42:20:023044 gprecoverseg:mdw:gpadmin-[INFO]:-   Synchronization mode                 = Full
+20210223:20:42:20:023044 gprecoverseg:mdw:gpadmin-[INFO]:-   Failed instance host                 = sdw3
+20210223:20:42:20:023044 gprecoverseg:mdw:gpadmin-[INFO]:-   Failed instance address              = sdw3
+20210223:20:42:20:023044 gprecoverseg:mdw:gpadmin-[INFO]:-   Failed instance directory            = /data2/mirror/gpseg8
+20210223:20:42:20:023044 gprecoverseg:mdw:gpadmin-[INFO]:-   Failed instance port                 = 7002
+20210223:20:42:20:023044 gprecoverseg:mdw:gpadmin-[INFO]:-   Recovery Source instance host        = sdw2
+20210223:20:42:20:023044 gprecoverseg:mdw:gpadmin-[INFO]:-   Recovery Source instance address     = sdw2
+20210223:20:42:20:023044 gprecoverseg:mdw:gpadmin-[INFO]:-   Recovery Source instance directory   = /data2/primary/gpseg8
+20210223:20:42:20:023044 gprecoverseg:mdw:gpadmin-[INFO]:-   Recovery Source instance port        = 6002
+20210223:20:42:20:023044 gprecoverseg:mdw:gpadmin-[INFO]:-   Recovery Target                      = in-place
+20210223:20:42:20:023044 gprecoverseg:mdw:gpadmin-[INFO]:----------------------------------------------------------
+20210223:20:42:20:023044 gprecoverseg:mdw:gpadmin-[INFO]:-Recovery 10 of 24
+20210223:20:42:20:023044 gprecoverseg:mdw:gpadmin-[INFO]:----------------------------------------------------------
+20210223:20:42:20:023044 gprecoverseg:mdw:gpadmin-[INFO]:-   Synchronization mode                 = Full
+20210223:20:42:20:023044 gprecoverseg:mdw:gpadmin-[INFO]:-   Failed instance host                 = sdw3
+20210223:20:42:20:023044 gprecoverseg:mdw:gpadmin-[INFO]:-   Failed instance address              = sdw3
+20210223:20:42:20:023044 gprecoverseg:mdw:gpadmin-[INFO]:-   Failed instance directory            = /data2/mirror/gpseg9
+20210223:20:42:20:023044 gprecoverseg:mdw:gpadmin-[INFO]:-   Failed instance port                 = 7003
+20210223:20:42:20:023044 gprecoverseg:mdw:gpadmin-[INFO]:-   Recovery Source instance host        = sdw2
+20210223:20:42:20:023044 gprecoverseg:mdw:gpadmin-[INFO]:-   Recovery Source instance address     = sdw2
+20210223:20:42:20:023044 gprecoverseg:mdw:gpadmin-[INFO]:-   Recovery Source instance directory   = /data2/primary/gpseg9
+20210223:20:42:20:023044 gprecoverseg:mdw:gpadmin-[INFO]:-   Recovery Source instance port        = 6003
+20210223:20:42:20:023044 gprecoverseg:mdw:gpadmin-[INFO]:-   Recovery Target                      = in-place
+20210223:20:42:20:023044 gprecoverseg:mdw:gpadmin-[INFO]:----------------------------------------------------------
+20210223:20:42:20:023044 gprecoverseg:mdw:gpadmin-[INFO]:-Recovery 11 of 24
+20210223:20:42:20:023044 gprecoverseg:mdw:gpadmin-[INFO]:----------------------------------------------------------
+20210223:20:42:20:023044 gprecoverseg:mdw:gpadmin-[INFO]:-   Synchronization mode                 = Full
+20210223:20:42:20:023044 gprecoverseg:mdw:gpadmin-[INFO]:-   Failed instance host                 = sdw3
+20210223:20:42:20:023044 gprecoverseg:mdw:gpadmin-[INFO]:-   Failed instance address              = sdw3
+20210223:20:42:20:023044 gprecoverseg:mdw:gpadmin-[INFO]:-   Failed instance directory            = /data3/mirror/gpseg10
+20210223:20:42:20:023044 gprecoverseg:mdw:gpadmin-[INFO]:-   Failed instance port                 = 7004
+20210223:20:42:20:023044 gprecoverseg:mdw:gpadmin-[INFO]:-   Recovery Source instance host        = sdw2
+20210223:20:42:20:023044 gprecoverseg:mdw:gpadmin-[INFO]:-   Recovery Source instance address     = sdw2
+20210223:20:42:20:023044 gprecoverseg:mdw:gpadmin-[INFO]:-   Recovery Source instance directory   = /data3/primary/gpseg10
+20210223:20:42:20:023044 gprecoverseg:mdw:gpadmin-[INFO]:-   Recovery Source instance port        = 6004
+20210223:20:42:20:023044 gprecoverseg:mdw:gpadmin-[INFO]:-   Recovery Target                      = in-place
+20210223:20:42:20:023044 gprecoverseg:mdw:gpadmin-[INFO]:----------------------------------------------------------
+20210223:20:42:20:023044 gprecoverseg:mdw:gpadmin-[INFO]:-Recovery 12 of 24
+20210223:20:42:20:023044 gprecoverseg:mdw:gpadmin-[INFO]:----------------------------------------------------------
+20210223:20:42:20:023044 gprecoverseg:mdw:gpadmin-[INFO]:-   Synchronization mode                 = Full
+20210223:20:42:20:023044 gprecoverseg:mdw:gpadmin-[INFO]:-   Failed instance host                 = sdw3
+20210223:20:42:20:023044 gprecoverseg:mdw:gpadmin-[INFO]:-   Failed instance address              = sdw3
+20210223:20:42:20:023044 gprecoverseg:mdw:gpadmin-[INFO]:-   Failed instance directory            = /data3/mirror/gpseg11
+20210223:20:42:20:023044 gprecoverseg:mdw:gpadmin-[INFO]:-   Failed instance port                 = 7005
+20210223:20:42:20:023044 gprecoverseg:mdw:gpadmin-[INFO]:-   Recovery Source instance host        = sdw2
+20210223:20:42:20:023044 gprecoverseg:mdw:gpadmin-[INFO]:-   Recovery Source instance address     = sdw2
+20210223:20:42:20:023044 gprecoverseg:mdw:gpadmin-[INFO]:-   Recovery Source instance directory   = /data3/primary/gpseg11
+20210223:20:42:20:023044 gprecoverseg:mdw:gpadmin-[INFO]:-   Recovery Source instance port        = 6005
+20210223:20:42:20:023044 gprecoverseg:mdw:gpadmin-[INFO]:-   Recovery Target                      = in-place
+20210223:20:42:20:023044 gprecoverseg:mdw:gpadmin-[INFO]:----------------------------------------------------------
+20210223:20:42:20:023044 gprecoverseg:mdw:gpadmin-[INFO]:-Recovery 13 of 24
+20210223:20:42:20:023044 gprecoverseg:mdw:gpadmin-[INFO]:----------------------------------------------------------
+20210223:20:42:20:023044 gprecoverseg:mdw:gpadmin-[INFO]:-   Synchronization mode                 = Full
+20210223:20:42:20:023044 gprecoverseg:mdw:gpadmin-[INFO]:-   Failed instance host                 = sdw4
+20210223:20:42:20:023044 gprecoverseg:mdw:gpadmin-[INFO]:-   Failed instance address              = sdw4
+20210223:20:42:20:023044 gprecoverseg:mdw:gpadmin-[INFO]:-   Failed instance directory            = /data1/mirror/gpseg12
+20210223:20:42:20:023044 gprecoverseg:mdw:gpadmin-[INFO]:-   Failed instance port                 = 7000
+20210223:20:42:20:023044 gprecoverseg:mdw:gpadmin-[INFO]:-   Recovery Source instance host        = sdw3
+20210223:20:42:20:023044 gprecoverseg:mdw:gpadmin-[INFO]:-   Recovery Source instance address     = sdw3
+20210223:20:42:20:023044 gprecoverseg:mdw:gpadmin-[INFO]:-   Recovery Source instance directory   = /data1/primary/gpseg12
+20210223:20:42:20:023044 gprecoverseg:mdw:gpadmin-[INFO]:-   Recovery Source instance port        = 6000
+20210223:20:42:20:023044 gprecoverseg:mdw:gpadmin-[INFO]:-   Recovery Target                      = in-place
+20210223:20:42:20:023044 gprecoverseg:mdw:gpadmin-[INFO]:----------------------------------------------------------
+20210223:20:42:20:023044 gprecoverseg:mdw:gpadmin-[INFO]:-Recovery 14 of 24
+20210223:20:42:20:023044 gprecoverseg:mdw:gpadmin-[INFO]:----------------------------------------------------------
+20210223:20:42:20:023044 gprecoverseg:mdw:gpadmin-[INFO]:-   Synchronization mode                 = Full
+20210223:20:42:20:023044 gprecoverseg:mdw:gpadmin-[INFO]:-   Failed instance host                 = sdw4
+20210223:20:42:20:023044 gprecoverseg:mdw:gpadmin-[INFO]:-   Failed instance address              = sdw4
+20210223:20:42:20:023044 gprecoverseg:mdw:gpadmin-[INFO]:-   Failed instance directory            = /data1/mirror/gpseg13
+20210223:20:42:20:023044 gprecoverseg:mdw:gpadmin-[INFO]:-   Failed instance port                 = 7001
+20210223:20:42:20:023044 gprecoverseg:mdw:gpadmin-[INFO]:-   Recovery Source instance host        = sdw3
+20210223:20:42:20:023044 gprecoverseg:mdw:gpadmin-[INFO]:-   Recovery Source instance address     = sdw3
+20210223:20:42:20:023044 gprecoverseg:mdw:gpadmin-[INFO]:-   Recovery Source instance directory   = /data1/primary/gpseg13
+20210223:20:42:20:023044 gprecoverseg:mdw:gpadmin-[INFO]:-   Recovery Source instance port        = 6001
+20210223:20:42:20:023044 gprecoverseg:mdw:gpadmin-[INFO]:-   Recovery Target                      = in-place
+20210223:20:42:20:023044 gprecoverseg:mdw:gpadmin-[INFO]:----------------------------------------------------------
+20210223:20:42:20:023044 gprecoverseg:mdw:gpadmin-[INFO]:-Recovery 15 of 24
+20210223:20:42:20:023044 gprecoverseg:mdw:gpadmin-[INFO]:----------------------------------------------------------
+20210223:20:42:20:023044 gprecoverseg:mdw:gpadmin-[INFO]:-   Synchronization mode                 = Full
+20210223:20:42:20:023044 gprecoverseg:mdw:gpadmin-[INFO]:-   Failed instance host                 = sdw4
+20210223:20:42:20:023044 gprecoverseg:mdw:gpadmin-[INFO]:-   Failed instance address              = sdw4
+20210223:20:42:20:023044 gprecoverseg:mdw:gpadmin-[INFO]:-   Failed instance directory            = /data2/mirror/gpseg14
+20210223:20:42:20:023044 gprecoverseg:mdw:gpadmin-[INFO]:-   Failed instance port                 = 7002
+20210223:20:42:20:023044 gprecoverseg:mdw:gpadmin-[INFO]:-   Recovery Source instance host        = sdw3
+20210223:20:42:20:023044 gprecoverseg:mdw:gpadmin-[INFO]:-   Recovery Source instance address     = sdw3
+20210223:20:42:20:023044 gprecoverseg:mdw:gpadmin-[INFO]:-   Recovery Source instance directory   = /data2/primary/gpseg14
+20210223:20:42:20:023044 gprecoverseg:mdw:gpadmin-[INFO]:-   Recovery Source instance port        = 6002
+20210223:20:42:20:023044 gprecoverseg:mdw:gpadmin-[INFO]:-   Recovery Target                      = in-place
+20210223:20:42:20:023044 gprecoverseg:mdw:gpadmin-[INFO]:----------------------------------------------------------
+20210223:20:42:20:023044 gprecoverseg:mdw:gpadmin-[INFO]:-Recovery 16 of 24
+20210223:20:42:20:023044 gprecoverseg:mdw:gpadmin-[INFO]:----------------------------------------------------------
+20210223:20:42:20:023044 gprecoverseg:mdw:gpadmin-[INFO]:-   Synchronization mode                 = Full
+20210223:20:42:20:023044 gprecoverseg:mdw:gpadmin-[INFO]:-   Failed instance host                 = sdw4
+20210223:20:42:20:023044 gprecoverseg:mdw:gpadmin-[INFO]:-   Failed instance address              = sdw4
+20210223:20:42:20:023044 gprecoverseg:mdw:gpadmin-[INFO]:-   Failed instance directory            = /data2/mirror/gpseg15
+20210223:20:42:20:023044 gprecoverseg:mdw:gpadmin-[INFO]:-   Failed instance port                 = 7003
+20210223:20:42:20:023044 gprecoverseg:mdw:gpadmin-[INFO]:-   Recovery Source instance host        = sdw3
+20210223:20:42:20:023044 gprecoverseg:mdw:gpadmin-[INFO]:-   Recovery Source instance address     = sdw3
+20210223:20:42:20:023044 gprecoverseg:mdw:gpadmin-[INFO]:-   Recovery Source instance directory   = /data2/primary/gpseg15
+20210223:20:42:20:023044 gprecoverseg:mdw:gpadmin-[INFO]:-   Recovery Source instance port        = 6003
+20210223:20:42:20:023044 gprecoverseg:mdw:gpadmin-[INFO]:-   Recovery Target                      = in-place
+20210223:20:42:20:023044 gprecoverseg:mdw:gpadmin-[INFO]:----------------------------------------------------------
+20210223:20:42:20:023044 gprecoverseg:mdw:gpadmin-[INFO]:-Recovery 17 of 24
+20210223:20:42:20:023044 gprecoverseg:mdw:gpadmin-[INFO]:----------------------------------------------------------
+20210223:20:42:20:023044 gprecoverseg:mdw:gpadmin-[INFO]:-   Synchronization mode                 = Full
+20210223:20:42:20:023044 gprecoverseg:mdw:gpadmin-[INFO]:-   Failed instance host                 = sdw4
+20210223:20:42:20:023044 gprecoverseg:mdw:gpadmin-[INFO]:-   Failed instance address              = sdw4
+20210223:20:42:20:023044 gprecoverseg:mdw:gpadmin-[INFO]:-   Failed instance directory            = /data3/mirror/gpseg16
+20210223:20:42:20:023044 gprecoverseg:mdw:gpadmin-[INFO]:-   Failed instance port                 = 7004
+20210223:20:42:20:023044 gprecoverseg:mdw:gpadmin-[INFO]:-   Recovery Source instance host        = sdw3
+20210223:20:42:20:023044 gprecoverseg:mdw:gpadmin-[INFO]:-   Recovery Source instance address     = sdw3
+20210223:20:42:20:023044 gprecoverseg:mdw:gpadmin-[INFO]:-   Recovery Source instance directory   = /data3/primary/gpseg16
+20210223:20:42:20:023044 gprecoverseg:mdw:gpadmin-[INFO]:-   Recovery Source instance port        = 6004
+20210223:20:42:20:023044 gprecoverseg:mdw:gpadmin-[INFO]:-   Recovery Target                      = in-place
+20210223:20:42:20:023044 gprecoverseg:mdw:gpadmin-[INFO]:----------------------------------------------------------
+20210223:20:42:20:023044 gprecoverseg:mdw:gpadmin-[INFO]:-Recovery 18 of 24
+20210223:20:42:20:023044 gprecoverseg:mdw:gpadmin-[INFO]:----------------------------------------------------------
+20210223:20:42:20:023044 gprecoverseg:mdw:gpadmin-[INFO]:-   Synchronization mode                 = Full
+20210223:20:42:20:023044 gprecoverseg:mdw:gpadmin-[INFO]:-   Failed instance host                 = sdw4
+20210223:20:42:20:023044 gprecoverseg:mdw:gpadmin-[INFO]:-   Failed instance address              = sdw4
+20210223:20:42:20:023044 gprecoverseg:mdw:gpadmin-[INFO]:-   Failed instance directory            = /data3/mirror/gpseg17
+20210223:20:42:20:023044 gprecoverseg:mdw:gpadmin-[INFO]:-   Failed instance port                 = 7005
+20210223:20:42:20:023044 gprecoverseg:mdw:gpadmin-[INFO]:-   Recovery Source instance host        = sdw3
+20210223:20:42:20:023044 gprecoverseg:mdw:gpadmin-[INFO]:-   Recovery Source instance address     = sdw3
+20210223:20:42:20:023044 gprecoverseg:mdw:gpadmin-[INFO]:-   Recovery Source instance directory   = /data3/primary/gpseg17
+20210223:20:42:20:023044 gprecoverseg:mdw:gpadmin-[INFO]:-   Recovery Source instance port        = 6005
+20210223:20:42:20:023044 gprecoverseg:mdw:gpadmin-[INFO]:-   Recovery Target                      = in-place
+20210223:20:42:20:023044 gprecoverseg:mdw:gpadmin-[INFO]:----------------------------------------------------------
+20210223:20:42:20:023044 gprecoverseg:mdw:gpadmin-[INFO]:-Recovery 19 of 24
+20210223:20:42:20:023044 gprecoverseg:mdw:gpadmin-[INFO]:----------------------------------------------------------
+20210223:20:42:20:023044 gprecoverseg:mdw:gpadmin-[INFO]:-   Synchronization mode                 = Full
+20210223:20:42:20:023044 gprecoverseg:mdw:gpadmin-[INFO]:-   Failed instance host                 = sdw1
+20210223:20:42:20:023044 gprecoverseg:mdw:gpadmin-[INFO]:-   Failed instance address              = sdw1
+20210223:20:42:20:023044 gprecoverseg:mdw:gpadmin-[INFO]:-   Failed instance directory            = /data1/mirror/gpseg18
+20210223:20:42:20:023044 gprecoverseg:mdw:gpadmin-[INFO]:-   Failed instance port                 = 7000
+20210223:20:42:20:023044 gprecoverseg:mdw:gpadmin-[INFO]:-   Recovery Source instance host        = sdw4
+20210223:20:42:20:023044 gprecoverseg:mdw:gpadmin-[INFO]:-   Recovery Source instance address     = sdw4
+20210223:20:42:20:023044 gprecoverseg:mdw:gpadmin-[INFO]:-   Recovery Source instance directory   = /data1/primary/gpseg18
+20210223:20:42:20:023044 gprecoverseg:mdw:gpadmin-[INFO]:-   Recovery Source instance port        = 6000
+20210223:20:42:20:023044 gprecoverseg:mdw:gpadmin-[INFO]:-   Recovery Target                      = in-place
+20210223:20:42:20:023044 gprecoverseg:mdw:gpadmin-[INFO]:----------------------------------------------------------
+20210223:20:42:20:023044 gprecoverseg:mdw:gpadmin-[INFO]:-Recovery 20 of 24
+20210223:20:42:20:023044 gprecoverseg:mdw:gpadmin-[INFO]:----------------------------------------------------------
+20210223:20:42:20:023044 gprecoverseg:mdw:gpadmin-[INFO]:-   Synchronization mode                 = Full
+20210223:20:42:20:023044 gprecoverseg:mdw:gpadmin-[INFO]:-   Failed instance host                 = sdw1
+20210223:20:42:20:023044 gprecoverseg:mdw:gpadmin-[INFO]:-   Failed instance address              = sdw1
+20210223:20:42:20:023044 gprecoverseg:mdw:gpadmin-[INFO]:-   Failed instance directory            = /data1/mirror/gpseg19
+20210223:20:42:20:023044 gprecoverseg:mdw:gpadmin-[INFO]:-   Failed instance port                 = 7001
+20210223:20:42:20:023044 gprecoverseg:mdw:gpadmin-[INFO]:-   Recovery Source instance host        = sdw4
+20210223:20:42:20:023044 gprecoverseg:mdw:gpadmin-[INFO]:-   Recovery Source instance address     = sdw4
+20210223:20:42:20:023044 gprecoverseg:mdw:gpadmin-[INFO]:-   Recovery Source instance directory   = /data1/primary/gpseg19
+20210223:20:42:20:023044 gprecoverseg:mdw:gpadmin-[INFO]:-   Recovery Source instance port        = 6001
+20210223:20:42:20:023044 gprecoverseg:mdw:gpadmin-[INFO]:-   Recovery Target                      = in-place
+20210223:20:42:20:023044 gprecoverseg:mdw:gpadmin-[INFO]:----------------------------------------------------------
+20210223:20:42:20:023044 gprecoverseg:mdw:gpadmin-[INFO]:-Recovery 21 of 24
+20210223:20:42:20:023044 gprecoverseg:mdw:gpadmin-[INFO]:----------------------------------------------------------
+20210223:20:42:20:023044 gprecoverseg:mdw:gpadmin-[INFO]:-   Synchronization mode                 = Full
+20210223:20:42:20:023044 gprecoverseg:mdw:gpadmin-[INFO]:-   Failed instance host                 = sdw1
+20210223:20:42:20:023044 gprecoverseg:mdw:gpadmin-[INFO]:-   Failed instance address              = sdw1
+20210223:20:42:20:023044 gprecoverseg:mdw:gpadmin-[INFO]:-   Failed instance directory            = /data2/mirror/gpseg20
+20210223:20:42:20:023044 gprecoverseg:mdw:gpadmin-[INFO]:-   Failed instance port                 = 7002
+20210223:20:42:20:023044 gprecoverseg:mdw:gpadmin-[INFO]:-   Recovery Source instance host        = sdw4
+20210223:20:42:20:023044 gprecoverseg:mdw:gpadmin-[INFO]:-   Recovery Source instance address     = sdw4
+20210223:20:42:20:023044 gprecoverseg:mdw:gpadmin-[INFO]:-   Recovery Source instance directory   = /data2/primary/gpseg20
+20210223:20:42:20:023044 gprecoverseg:mdw:gpadmin-[INFO]:-   Recovery Source instance port        = 6002
+20210223:20:42:20:023044 gprecoverseg:mdw:gpadmin-[INFO]:-   Recovery Target                      = in-place
+20210223:20:42:20:023044 gprecoverseg:mdw:gpadmin-[INFO]:----------------------------------------------------------
+20210223:20:42:20:023044 gprecoverseg:mdw:gpadmin-[INFO]:-Recovery 22 of 24
+20210223:20:42:20:023044 gprecoverseg:mdw:gpadmin-[INFO]:----------------------------------------------------------
+20210223:20:42:20:023044 gprecoverseg:mdw:gpadmin-[INFO]:-   Synchronization mode                 = Full
+20210223:20:42:20:023044 gprecoverseg:mdw:gpadmin-[INFO]:-   Failed instance host                 = sdw1
+20210223:20:42:20:023044 gprecoverseg:mdw:gpadmin-[INFO]:-   Failed instance address              = sdw1
+20210223:20:42:20:023044 gprecoverseg:mdw:gpadmin-[INFO]:-   Failed instance directory            = /data2/mirror/gpseg21
+20210223:20:42:20:023044 gprecoverseg:mdw:gpadmin-[INFO]:-   Failed instance port                 = 7003
+20210223:20:42:20:023044 gprecoverseg:mdw:gpadmin-[INFO]:-   Recovery Source instance host        = sdw4
+20210223:20:42:20:023044 gprecoverseg:mdw:gpadmin-[INFO]:-   Recovery Source instance address     = sdw4
+20210223:20:42:20:023044 gprecoverseg:mdw:gpadmin-[INFO]:-   Recovery Source instance directory   = /data2/primary/gpseg21
+20210223:20:42:20:023044 gprecoverseg:mdw:gpadmin-[INFO]:-   Recovery Source instance port        = 6003
+20210223:20:42:20:023044 gprecoverseg:mdw:gpadmin-[INFO]:-   Recovery Target                      = in-place
+20210223:20:42:20:023044 gprecoverseg:mdw:gpadmin-[INFO]:----------------------------------------------------------
+20210223:20:42:20:023044 gprecoverseg:mdw:gpadmin-[INFO]:-Recovery 23 of 24
+20210223:20:42:20:023044 gprecoverseg:mdw:gpadmin-[INFO]:----------------------------------------------------------
+20210223:20:42:20:023044 gprecoverseg:mdw:gpadmin-[INFO]:-   Synchronization mode                 = Full
+20210223:20:42:20:023044 gprecoverseg:mdw:gpadmin-[INFO]:-   Failed instance host                 = sdw1
+20210223:20:42:20:023044 gprecoverseg:mdw:gpadmin-[INFO]:-   Failed instance address              = sdw1
+20210223:20:42:20:023044 gprecoverseg:mdw:gpadmin-[INFO]:-   Failed instance directory            = /data3/mirror/gpseg22
+20210223:20:42:20:023044 gprecoverseg:mdw:gpadmin-[INFO]:-   Failed instance port                 = 7004
+20210223:20:42:20:023044 gprecoverseg:mdw:gpadmin-[INFO]:-   Recovery Source instance host        = sdw4
+20210223:20:42:20:023044 gprecoverseg:mdw:gpadmin-[INFO]:-   Recovery Source instance address     = sdw4
+20210223:20:42:20:023044 gprecoverseg:mdw:gpadmin-[INFO]:-   Recovery Source instance directory   = /data3/primary/gpseg22
+20210223:20:42:20:023044 gprecoverseg:mdw:gpadmin-[INFO]:-   Recovery Source instance port        = 6004
+20210223:20:42:20:023044 gprecoverseg:mdw:gpadmin-[INFO]:-   Recovery Target                      = in-place
+20210223:20:42:20:023044 gprecoverseg:mdw:gpadmin-[INFO]:----------------------------------------------------------
+20210223:20:42:20:023044 gprecoverseg:mdw:gpadmin-[INFO]:-Recovery 24 of 24
+20210223:20:42:20:023044 gprecoverseg:mdw:gpadmin-[INFO]:----------------------------------------------------------
+20210223:20:42:20:023044 gprecoverseg:mdw:gpadmin-[INFO]:-   Synchronization mode                 = Full
+20210223:20:42:20:023044 gprecoverseg:mdw:gpadmin-[INFO]:-   Failed instance host                 = sdw1
+20210223:20:42:20:023044 gprecoverseg:mdw:gpadmin-[INFO]:-   Failed instance address              = sdw1
+20210223:20:42:20:023044 gprecoverseg:mdw:gpadmin-[INFO]:-   Failed instance directory            = /data3/mirror/gpseg23
+20210223:20:42:20:023044 gprecoverseg:mdw:gpadmin-[INFO]:-   Failed instance port                 = 7005
+20210223:20:42:20:023044 gprecoverseg:mdw:gpadmin-[INFO]:-   Recovery Source instance host        = sdw4
+20210223:20:42:20:023044 gprecoverseg:mdw:gpadmin-[INFO]:-   Recovery Source instance address     = sdw4
+20210223:20:42:20:023044 gprecoverseg:mdw:gpadmin-[INFO]:-   Recovery Source instance directory   = /data3/primary/gpseg23
+20210223:20:42:20:023044 gprecoverseg:mdw:gpadmin-[INFO]:-   Recovery Source instance port        = 6005
+20210223:20:42:20:023044 gprecoverseg:mdw:gpadmin-[INFO]:-   Recovery Target                      = in-place
+20210223:20:42:20:023044 gprecoverseg:mdw:gpadmin-[INFO]:----------------------------------------------------------
+
+Continue with segment recovery procedure Yy|Nn (default=N):
+> y
+20210223:20:42:21:023044 gprecoverseg:mdw:gpadmin-[INFO]:-24 segment(s) to recover
+20210223:20:42:21:023044 gprecoverseg:mdw:gpadmin-[INFO]:-Ensuring 24 failed segment(s) are stopped
+20210223:20:42:28:023044 gprecoverseg:mdw:gpadmin-[INFO]:-Ensuring that shared memory is cleaned up for stopped segments
+20210223:20:42:28:023044 gprecoverseg:mdw:gpadmin-[INFO]:-Validating remote directories
+20210223:20:42:28:023044 gprecoverseg:mdw:gpadmin-[INFO]:-Configuring new segments
+sdw4 (dbid 39): pg_basebackup: base backup completed
+sdw4 (dbid 40): pg_basebackup: base backup completed
+sdw4 (dbid 41): pg_basebackup: base backup completed
+sdw4 (dbid 42): pg_basebackup: base backup completed
+sdw4 (dbid 43): pg_basebackup: base backup completed
+sdw4 (dbid 44): pg_basebackup: base backup completed
+sdw1 (dbid 45): pg_basebackup: base backup completed
+sdw1 (dbid 46): pg_basebackup: base backup completed
+sdw1 (dbid 47): pg_basebackup: base backup completed
+sdw1 (dbid 48): pg_basebackup: base backup completed
+sdw1 (dbid 49): pg_basebackup: base backup completed
+sdw1 (dbid 50): pg_basebackup: base backup completed
+sdw2 (dbid 27): pg_basebackup: base backup completed
+sdw2 (dbid 28): pg_basebackup: base backup completed
+sdw2 (dbid 29): pg_basebackup: base backup completed
+sdw2 (dbid 30): pg_basebackup: base backup completed
+sdw2 (dbid 31): pg_basebackup: base backup completed
+sdw2 (dbid 32): pg_basebackup: base backup completed
+sdw3 (dbid 33): pg_basebackup: base backup completed
+sdw3 (dbid 34): pg_basebackup: base backup completed
+sdw3 (dbid 35): pg_basebackup: base backup completed
+sdw3 (dbid 36): pg_basebackup: base backup completed
+sdw3 (dbid 37): pg_basebackup: base backup completed
+sdw3 (dbid 38): pg_basebackup: base backup completed
+20210223:20:43:06:023044 gprecoverseg:mdw:gpadmin-[INFO]:-Updating configuration with new mirrors
+20210223:20:43:06:023044 gprecoverseg:mdw:gpadmin-[INFO]:-Updating mirrors
+20210223:20:43:06:023044 gprecoverseg:mdw:gpadmin-[INFO]:-Starting mirrors
+20210223:20:43:06:023044 gprecoverseg:mdw:gpadmin-[INFO]:-era is 4f3ab0f0e042f4e2_210221030125
+20210223:20:43:06:023044 gprecoverseg:mdw:gpadmin-[INFO]:-Commencing parallel segment instance startup, please wait...
+..
+20210223:20:43:08:023044 gprecoverseg:mdw:gpadmin-[INFO]:-Process results...
+20210223:20:43:08:023044 gprecoverseg:mdw:gpadmin-[INFO]:-Triggering FTS probe
+20210223:20:43:09:023044 gprecoverseg:mdw:gpadmin-[INFO]:-******************************************************************
+20210223:20:43:09:023044 gprecoverseg:mdw:gpadmin-[INFO]:-Updating segments for streaming is completed.
+20210223:20:43:09:023044 gprecoverseg:mdw:gpadmin-[INFO]:-For segments updated successfully, streaming will continue in the background.
+20210223:20:43:09:023044 gprecoverseg:mdw:gpadmin-[INFO]:-Use  gpstate -s  to check the streaming progress.
+20210223:20:43:09:023044 gprecoverseg:mdw:gpadmin-[INFO]:-******************************************************************
+[gpadmin@mdw ~]$ gpstate -c
+20210223:20:43:13:023499 gpstate:mdw:gpadmin-[INFO]:-Starting gpstate with args: -c
+20210223:20:43:13:023499 gpstate:mdw:gpadmin-[INFO]:-local Greenplum Version: 'postgres (Greenplum Database) 6.10.1 build commit:efba04ce26ebb29b535a255a5e95d1f5ebfde94e'
+20210223:20:43:13:023499 gpstate:mdw:gpadmin-[INFO]:-master Greenplum Version: 'PostgreSQL 9.4.24 (Greenplum Database 6.10.1 build commit:efba04ce26ebb29b535a255a5e95d1f5ebfde94e) on x86_64-unknown-linux-gnu, compiled by gcc (GCC) 6.4.0, 64-bit compiled on Aug 13 2020 02:56:29'
+20210223:20:43:13:023499 gpstate:mdw:gpadmin-[INFO]:-Obtaining Segment details from master...
+20210223:20:43:13:023499 gpstate:mdw:gpadmin-[INFO]:--------------------------------------------------------------
+20210223:20:43:13:023499 gpstate:mdw:gpadmin-[INFO]:--Current GPDB mirror list and status
+20210223:20:43:13:023499 gpstate:mdw:gpadmin-[INFO]:--Type = Group
+20210223:20:43:13:023499 gpstate:mdw:gpadmin-[INFO]:--------------------------------------------------------------
+20210223:20:43:13:023499 gpstate:mdw:gpadmin-[INFO]:-   Status                             Data State     Primary   Datadir                  Port   Mirror   Datadir                 Port
+20210223:20:43:13:023499 gpstate:mdw:gpadmin-[INFO]:-   Primary Active, Mirror Available   Synchronized   sdw1      /data1/primary/gpseg0    6000   sdw2     /data1/mirror/gpseg0    7000
+20210223:20:43:13:023499 gpstate:mdw:gpadmin-[INFO]:-   Primary Active, Mirror Available   Synchronized   sdw1      /data1/primary/gpseg1    6001   sdw2     /data1/mirror/gpseg1    7001
+20210223:20:43:13:023499 gpstate:mdw:gpadmin-[INFO]:-   Primary Active, Mirror Available   Synchronized   sdw1      /data2/primary/gpseg2    6002   sdw2     /data2/mirror/gpseg2    7002
+20210223:20:43:13:023499 gpstate:mdw:gpadmin-[INFO]:-   Primary Active, Mirror Available   Synchronized   sdw1      /data2/primary/gpseg3    6003   sdw2     /data2/mirror/gpseg3    7003
+20210223:20:43:13:023499 gpstate:mdw:gpadmin-[INFO]:-   Primary Active, Mirror Available   Synchronized   sdw1      /data3/primary/gpseg4    6004   sdw2     /data3/mirror/gpseg4    7004
+20210223:20:43:13:023499 gpstate:mdw:gpadmin-[INFO]:-   Primary Active, Mirror Available   Synchronized   sdw1      /data3/primary/gpseg5    6005   sdw2     /data3/mirror/gpseg5    7005
+20210223:20:43:13:023499 gpstate:mdw:gpadmin-[INFO]:-   Primary Active, Mirror Available   Synchronized   sdw2      /data1/primary/gpseg6    6000   sdw3     /data1/mirror/gpseg6    7000
+20210223:20:43:13:023499 gpstate:mdw:gpadmin-[INFO]:-   Primary Active, Mirror Available   Synchronized   sdw2      /data1/primary/gpseg7    6001   sdw3     /data1/mirror/gpseg7    7001
+20210223:20:43:13:023499 gpstate:mdw:gpadmin-[INFO]:-   Primary Active, Mirror Available   Synchronized   sdw2      /data2/primary/gpseg8    6002   sdw3     /data2/mirror/gpseg8    7002
+20210223:20:43:13:023499 gpstate:mdw:gpadmin-[INFO]:-   Primary Active, Mirror Available   Synchronized   sdw2      /data2/primary/gpseg9    6003   sdw3     /data2/mirror/gpseg9    7003
+20210223:20:43:13:023499 gpstate:mdw:gpadmin-[INFO]:-   Primary Active, Mirror Available   Synchronized   sdw2      /data3/primary/gpseg10   6004   sdw3     /data3/mirror/gpseg10   7004
+20210223:20:43:13:023499 gpstate:mdw:gpadmin-[INFO]:-   Primary Active, Mirror Available   Synchronized   sdw2      /data3/primary/gpseg11   6005   sdw3     /data3/mirror/gpseg11   7005
+20210223:20:43:13:023499 gpstate:mdw:gpadmin-[INFO]:-   Primary Active, Mirror Available   Synchronized   sdw3      /data1/primary/gpseg12   6000   sdw4     /data1/mirror/gpseg12   7000
+20210223:20:43:13:023499 gpstate:mdw:gpadmin-[INFO]:-   Primary Active, Mirror Available   Synchronized   sdw3      /data1/primary/gpseg13   6001   sdw4     /data1/mirror/gpseg13   7001
+20210223:20:43:13:023499 gpstate:mdw:gpadmin-[INFO]:-   Primary Active, Mirror Available   Synchronized   sdw3      /data2/primary/gpseg14   6002   sdw4     /data2/mirror/gpseg14   7002
+20210223:20:43:13:023499 gpstate:mdw:gpadmin-[INFO]:-   Primary Active, Mirror Available   Synchronized   sdw3      /data2/primary/gpseg15   6003   sdw4     /data2/mirror/gpseg15   7003
+20210223:20:43:13:023499 gpstate:mdw:gpadmin-[INFO]:-   Primary Active, Mirror Available   Synchronized   sdw3      /data3/primary/gpseg16   6004   sdw4     /data3/mirror/gpseg16   7004
+20210223:20:43:13:023499 gpstate:mdw:gpadmin-[INFO]:-   Primary Active, Mirror Available   Synchronized   sdw3      /data3/primary/gpseg17   6005   sdw4     /data3/mirror/gpseg17   7005
+20210223:20:43:13:023499 gpstate:mdw:gpadmin-[INFO]:-   Primary Active, Mirror Available   Synchronized   sdw4      /data1/primary/gpseg18   6000   sdw1     /data1/mirror/gpseg18   7000
+20210223:20:43:13:023499 gpstate:mdw:gpadmin-[INFO]:-   Primary Active, Mirror Available   Synchronized   sdw4      /data1/primary/gpseg19   6001   sdw1     /data1/mirror/gpseg19   7001
+20210223:20:43:13:023499 gpstate:mdw:gpadmin-[INFO]:-   Primary Active, Mirror Available   Synchronized   sdw4      /data2/primary/gpseg20   6002   sdw1     /data2/mirror/gpseg20   7002
+20210223:20:43:13:023499 gpstate:mdw:gpadmin-[INFO]:-   Primary Active, Mirror Available   Synchronized   sdw4      /data2/primary/gpseg21   6003   sdw1     /data2/mirror/gpseg21   7003
+20210223:20:43:13:023499 gpstate:mdw:gpadmin-[INFO]:-   Primary Active, Mirror Available   Synchronized   sdw4      /data3/primary/gpseg22   6004   sdw1     /data3/mirror/gpseg22   7004
+20210223:20:43:13:023499 gpstate:mdw:gpadmin-[INFO]:-   Primary Active, Mirror Available   Synchronized   sdw4      /data3/primary/gpseg23   6005   sdw1     /data3/mirror/gpseg23   7005
+20210223:20:43:13:023499 gpstate:mdw:gpadmin-[INFO]:--------------------------------------------------------------
+
+gpssh -h sdw1 'ls -l /tmp/newspace/'
+[sdw1] 합계 0
+[sdw1] drwx------ 3 gpadmin gpadmin 15  2월 23 20:39 seg0
+[sdw1] drwx------ 3 gpadmin gpadmin 15  2월 23 20:39 seg1
+[sdw1] drwxrwxr-x 3 gpadmin gpadmin 16  2월 23 20:42 seg18
+[sdw1] drwxrwxr-x 3 gpadmin gpadmin 16  2월 23 20:42 seg19
+[sdw1] drwx------ 3 gpadmin gpadmin 15  2월 23 20:39 seg2
+[sdw1] drwxrwxr-x 3 gpadmin gpadmin 16  2월 23 20:42 seg20
+[sdw1] drwxrwxr-x 3 gpadmin gpadmin 16  2월 23 20:42 seg21
+[sdw1] drwxrwxr-x 3 gpadmin gpadmin 16  2월 23 20:42 seg22
+[sdw1] drwxrwxr-x 3 gpadmin gpadmin 16  2월 23 20:42 seg23
+[sdw1] drwx------ 3 gpadmin gpadmin 15  2월 23 20:39 seg3
+[sdw1] drwx------ 3 gpadmin gpadmin 15  2월 23 20:39 seg4
+[sdw1] drwx------ 3 gpadmin gpadmin 15  2월 23 20:39 seg5
+
+드디어 제대로 보임
